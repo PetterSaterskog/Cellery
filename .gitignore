@@ -1,4 +1,8 @@
 figs
 *.swp
+*.pickle
+*.nb
 montecarloFigs
-cell_positions_data
+keren_cell_positions_data
+.DS_Store
+__pycache__
