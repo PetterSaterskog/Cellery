@@ -31,9 +31,9 @@ cellMarkers = {'CD8-T':('o', (0.9,0.4,0.6)),
 			   'Unidentified':('$?$','gray')
 			   }
 
-def plotCells(cellsByType, W, name, title):
+def plotCells(cellsByType, W, name=None, title=None):
 	tot =  sum(len(cellsByType[t]) for t in cellsByType)
-	pl.figure(figsize=(15, 15))
+	if name: pl.figure(figsize=(15, 15))
 	# pl.gca().set_facecolor((0.5, 0.5, 0.5))
 	for typeName in typeOrder:
 		if not typeName in cellsByType: continue
@@ -47,12 +47,17 @@ def plotCells(cellsByType, W, name, title):
 				label = f"{typeName} ({100*pCells.shape[0]/tot:.1f}%)")
 
 	pl.gca().add_patch(patches.Rectangle((0, 0), W, W,  linewidth=1, edgecolor='r', facecolor='none'))
-	pl.legend(loc = 'right')
-	pl.xlim((0, W*1.3))
-	pl.ylim((0, W*1.3))
-	pl.title(f'{title} - {tot} cells')
-	pl.savefig(figDir+f"cellsByType_{name}.pdf")
-	pl.close()
+	if title:
+		pl.legend(loc = 'right')
+		pl.xlim((0, W*1.3))
+		pl.ylim((0, W*1.3))
+		pl.title(f'{title} - {tot} cells')
+	else:
+		pl.xlim((0, W))
+		pl.ylim((0, W))
+	if name:
+		pl.savefig(figDir+f"cellsByType_{name}.pdf")
+		pl.close()
 
 def plotHist(binEdges, counts, ls='-', label=''):
 	pl.plot(np.repeat(binEdges, 2)[1:-1], np.repeat(counts, 2), ls, label=label)

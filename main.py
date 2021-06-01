@@ -12,7 +12,7 @@ import pickle
 
 inputDir = "keren_cell_positions_data"
 
-patientList = ['patient1','patient2','patient13','patient14','patient23','patient36','patient37', 'patient39']
+patientList = ['patient1','patient2',3,4,'patient13','patient14','patient16','patient23','patient35','patient36','patient37', 'patient39', 40, 41]
 # patientList = ['patient1','patient2','patient14','patient23','patient36','patient37', 'patient39']
 # patientList = ['patient13','patient14','patient23','patient36','patient39']
 # patientList = ['patient39']
@@ -21,66 +21,77 @@ images = {}
 for fn in os.listdir(inputDir):
 	name = fn[:-19]
 	if name in patientList:
-		print(f"{name}:")
+		print(f"Loading {name}..")
 		im = keren.loadImage(fn)
 		counts = im.getCounts()
 		images[name] = im
 
-def getAverageS0(qs):
-	
+def getAverageS0(newCounts, qs):
+	totalNorm = defaultdict(lambda :0)
+	meanS0 = defaultdict(lambda :np.zeros(qs.shape))
+	for name in images:
+		counts = images[name].getCounts()
+		S0, = images[name].getStructureFactors(qs)
+		for pair in S0:
+			totalNorm[pair] += counts[pair[0]]*counts[pair[1]]
+			meanS0[pair] += S0[pair]
+	return {pair:meanS0[pair]*newCounts[pair[0]]*newCounts[pair[1]]/totalNorm[pair] for pair in meanS0 if pair[0] in newCounts and pair[1] in newCounts}
 
 edges = np.linspace(0, 300, 100)
+useMeanCorr = True
 
-for fn in os.listdir(inputDir):
-	name = fn[:-19]
-	if name in patientList:
-		print(f"{name}:")
-		im = keren.loadImage(fn)
-		counts = im.getCounts()
-		images[name] = im
-		# corrs, err = images[name].getCorrs(edges)
-		# pl.figure()
-		# for c in corrs:
-		# 	if 'Kreatin-positive tumor' in c:
-		# 		plotHist(edges, corrs[c])
-		# pl.show()
-		resolution = 3 #um
-		qs = np.linspace((2*np.pi)/(0.9*im.W/2), 2*np.pi / resolution, 100)
-		S0 = images[name].getStructureFactors(qs)[0]
-		plotCells(im.cells, im.W, f"b_{name}", f"b_{name}")
-		# for i in range(500):
-		import time
-		i=[0]
+for name in images:
+	print(f"{name}:")
+	im = images[name]
+	counts = im.getCounts()
+	# corrs, err = images[name].getCorrs(edges)
+	# pl.figure()
+	# for c in corrs:
+	# 	if 'Kreatin-positive tumor' in c:
+	# 		plotHist(edges, corrs[c])
+	# pl.show()
+	resolution = 4 #um
+	qs = np.linspace((2*np.pi)/(0.9*im.W/2), 2*np.pi / resolution, 100)
+	# S0 = images[name].getStructureFactors(qs)[0]
+	plotCells(im.cells, im.W, f"b_{name}", f"b_{name}")
+	# for i in range(500):
+	import time
+	i=[0]
 
-		def callback(cd):
-			plotCells(cd.cells, cd.W, f"a_{name}, iteration={i[0]}", f"{name}")
-			i[0]+=1
+	def callback(cd):
+		plotCells(cd.cells, cd.W, f"a_{name}_meanS0={useMeanCorr}, iteration={i[0]}", f"{name}")
+		i[0]+=1
 
-		#start = time.time()
-		resolutions = [60, 55, 50, 45, 40, 35, 30, 25, 20, 12, 6, 3] #um
-		step = 5.
-		cells = {c:np.random.rand(counts[c], 2)*im.W for c in counts}
-		guess = CellDistribution(cells, im.W, torus=True)
-		for resolution in resolutions:
-			minQ = (2*np.pi)/(0.9*im.W/2)
-			maxQ = 2*np.pi/resolution
-			qs = np.linspace(minQ, maxQ, max(2, int(2*maxQ//minQ)))
-			print(f"{len(qs)} wavevectors:")
+	#start = time.time()
+	resolutions = [60, 55, 50, 45, 40, 35, 30, 25, 20, 12, 6, 3] #um
+	# resolutions = [60] #um
+	step = 5.
+	cells = {c:np.random.rand(counts[c], 2)*im.W for c in counts}
+	guess = CellDistribution(cells, im.W, torus=True)
+	for resolution in resolutions:
+		minQ = (2*np.pi)/(0.9*im.W/2)
+		maxQ = 2*np.pi/resolution
+		qs = np.linspace(minQ, maxQ, max(2, int(2*maxQ//minQ)))
+		print(f"{len(qs)} wavevectors:")
+		if useMeanCorr:
+			S0 = getAverageS0(counts, qs)
+		else:
 			S0 = images[name].getStructureFactors(qs)[0]
-			L0, = guess.getSLoss(S0, qs)
-			print(f"optimizing..")
-			gim, step = generateCellDistribution({t:counts[t]//1 for t in counts}, S0, im.W//1, qs, start = cells, maxIterations = 15,  callback=callback, startStep = step, L0=L0)
-			cells = gim.cells
-
-		with open(f'{name}.pickle', 'wb') as h:
-			pickle.dump((im.W, cells), h)
 		
-		#end = time.time()
+		L0, = guess.getSLoss(S0, qs)
+		print(f"optimizing..")
+		gim, step = generateCellDistribution({t:counts[t]//1 for t in counts}, S0, im.W//1, qs, start = cells, maxIterations = 15,  callback=callback, startStep = step, L0=L0)
+		cells = gim.cells
 
-		#print("Time: ", end - start)
-		# plotCells(gim.cells, gim.W, f"a_{name}, iteration={i}")
+	with open(f'{name}_meanS0={useMeanCorr}.pickle', 'wb') as h:
+		pickle.dump((im.W, cells), h)
+	
+	#end = time.time()
 
-	#getCellDistribution(densities, correlators, nIterations)
+	#print("Time: ", end - start)
+	# plotCells(gim.cells, gim.W, f"a_{name}, iteration={i}")
+
+#getCellDistribution(densities, correlators, nIterations)
 
 exit(0)
 
