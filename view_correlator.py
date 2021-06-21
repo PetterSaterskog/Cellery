@@ -7,7 +7,7 @@ import matplotlib.patches as patches
 from multiprocessing import Pool
 from plot_cells import plotCells, plotHist, typeOrder
 import keren
-from cell_distribution import generateCellDistribution, CellDistribution
+from cell_distribution import generateCellDistribution, CellDistribution, radialFourierTransformRToQ
 import pickle
 
 inputDir = "keren_cell_positions_data"
@@ -15,7 +15,7 @@ inputDir = "keren_cell_positions_data"
 
 for fn in os.listdir(inputDir):
 	name = fn[:-19]
-	if not name == 'patient17':
+	if not name == 'patient32':#'patient17':
 		continue
 	
 	
@@ -36,9 +36,10 @@ for fn in os.listdir(inputDir):
 					break
 		im = CellDistribution({'1':np.array(ps), '2':np.random.rand(n, 2)*W}, W, torus=False)
 	else:
-		im = keren.loadImage(fn)#, margin = 250)
+		# im = keren.loadImage(fn, margin = 100)
+		im = keren.loadImage(fn)
 
-	im.z = 250 #um			
+	im.z = 12 #um			
 		# ps = {f"type{k}":np.random.rand(n, 2)*W for k in range(1)}
 		
 		# pl.figure( figsize=(10, 10))
@@ -54,33 +55,170 @@ for fn in os.listdir(inputDir):
 	# qs = np.linspace(minQ, maxQ, max(2, int(2*maxQ//minQ)))
 
 	if True:
+		# res = 2# 4.0
+		# qs = im.getQs(res)
 		# S0, = im.getStructureFactors(qs)
+		# H = im.getH(qs, S=S0)
 		# i=0
 		# pl.figure( figsize=(10, 10))
+		# pl.title("S")
 		# for p in S0:
 		# 	if p[0]==p[1]:
-		# 		pl.plot(qs, i+0.5*S0[p], label=p)
-		# 		i+=1
+		# 		pl.plot(qs, S0[p], label=p)
+		# pl.legend()
+		# pl.figure( figsize=(10, 10))
+		# pl.title("H")
+		# for p in S0:
+		# 	if p[0]==p[1]:
+		# 		pl.plot(qs, H[p], label=p)
 		# pl.legend()
 		# pl.savefig(f"figs/correlators/structure_factor/{name}.pdf")
-		# pl.close()
-		res = 10# 4.0
-		g, c = im.getRadialDistributionFunction(res)
-		i=0
+
+		# pl.show()
+		# exit(0)
+		# sizes = {'CD8-T':5, 'Kreatin-positive tumor':8,'CD4-T':7, 'Macrophages':3}
+		# ghs = im.getHardSphereG(sizes, res)
+		# pl.figure( figsize=(10, 10))
+		# pl.title("g hard sphere")
+		# for p in ghs:
+		# 	pl.plot(ghs[p][0], ghs[p][1], label=p)
+		# pl.legend()
+		dr = 1
+		n = 400
+		dq=np.pi/n/dr
+		qs = (0.5+np.arange(n)) * dq
+
+		# pl.figure( figsize=(10, 10))
+		rs, g = im.getG(dr, n)
+		# pl.title("g")
+		# for p in g:
+		# 	pl.plot(rs, g[p], label=p)
+		# pl.legend()
+
+		# pl.figure( figsize=(10, 10))
+		_, c = im.getC(dr, n)
+		_, cReg = im.getC(dr, n, longRangeReg = 0.00001, highFreqReg = 3e-2)
+
+		# pl.title("c")
+		# for p in c:
+		# 	pl.plot(rs, c[p], label=p)
+		# pl.legend()
+		
+		# gFromc = im.getGFromC(c, dr, n)
+		# pl.figure( figsize=(10, 10))
+		# pl.title("g from c")
+		# for p in gFromc:
+		# 	pl.plot(rs, gFromc[p][1], label=p)
+		# pl.legend()
+		
+		H=im.getH(qs)
+
+		rhos = im.getRhos()
+		# rhoVec = np.array([rhos[t] for t in types])
+		# rhoH = rhoVec[np.newaxis, np.newaxis, :]*H
+
+		# pl.figure( figsize=(10, 10))
+		# pl.title("rho H vs q")
+		# for p in H:
+		#  	pl.plot(qs, rhos[p[0]]*H[p], label=p)
+		# pl.legend()
+		
+		from matplotlib.colors import hsv_to_rgb
+		basisLs = np.geomspace(6, 25, 3) # [2.5, 5, 10, 20, 40, 80]
+		# basisLs = [1,2, 3, 6, 12]
+		basis = [np.exp(-rs**2/(2*l**2)) for l in basisLs]
+		cx = im.getC(dr, n, basis)
+		cFromBasis =  im.getCFromBasis(cx, basis, dr, n)
 		pl.figure( figsize=(10, 10))
-		for p in g:
-			if True or p[0]==p[1]:
-				pl.plot(g[p][0], g[p][1], label=p)
-				i+=1
+		pl.title("c from basis (-- unconstrained)")
+		pl.grid()
+		i=0
+		for p in cFromBasis:
+			col = hsv_to_rgb((i/len(cFromBasis),1,1))
+			# pl.plot(rs, cFromBasis[p], label=p, color=col)
+			# pl.plot(rs, c[p], linestyle='--', color=col)
+			pl.plot(rs, cReg[p], linestyle='-', color=col, label=p)
+			i+=1
+		# for b in basis:
+			# pl.plot(rs, b, linestyle=':', color='gray')
 		pl.legend()
 
 		pl.figure( figsize=(10, 10))
+		pl.title("c from Basis vs q (-- unconstrained)")
+		i=0
+		for p in cFromBasis:
+			col = hsv_to_rgb((i/len(cFromBasis),1,1))
+			# pl.plot(qs, radialFourierTransformRToQ(rs, cFromBasis[p])[1], label=p, color=col)
+			pl.plot(qs, radialFourierTransformRToQ(rs, c[p])[1], linestyle='--', color=col)
+			pl.plot(qs, radialFourierTransformRToQ(rs, cReg[p])[1], linestyle=':', color=col)
+			i+=1
+		# for b in basis:
+			# pl.plot(qs, radialFourierTransformRToQ(rs, b)[1]/np.sum(b), linestyle=':', color='gray')
+		pl.legend()
+
+		# print("cFromBasis", cFromBasis)
+
+		gFromcFromBasis = im.getGFromC(cFromBasis, dr, n)
+		gFromcReg = im.getGFromC(cReg, dr, n)
+		# print("gFromcFromBasis", gFromcFromBasis)
+
+		pl.figure( figsize=(10, 10))
+		pl.title("g from c from Basis (-- unconstrained)")
+		i=0
+		for p in gFromcFromBasis:
+			col = hsv_to_rgb((i/len(cFromBasis),1,1))
+			# pl.plot(rs, gFromcFromBasis[p][1], label=p, color=col)
+			pl.plot(rs, gFromcReg[p][1], linestyle=':', label=p, color=col)
+			pl.plot(rs, g[p], linestyle='--', color=col)
+			i+=1
+		pl.legend()
+
+
+		pl.show()
+		exit(0)
+
+		# g, c, rHmat, DMat = im.getRadialDistributionFunction(res)
+		h, c, rHmat = im.getRadialDistributionFunction(res)
+		# print(g, c, rHmat, DMat)
+
+		# pl.figure( figsize=(10, 10))
+		# pl.title("g")
+		# for p in g:
+		# 	if True or p[0]==p[1]:
+		# 		pl.plot(g[p][0], g[p][1], label=p)
+		# pl.legend()
+
+		pl.figure( figsize=(10, 10))
+		pl.title("c")
 		for p in c:
 			if True or p[0]==p[1]:
 				pl.plot(c[p][0], c[p][1], label=p)
-				i+=1
 		pl.legend()
+
+		pl.figure( figsize=(10, 10))
+		pl.title("h")
+		for p in h:
+			if True or p[0]==p[1]:
+				pl.plot(h[p][0], h[p][1], label=p)
+		pl.legend()
+
+		pl.figure( figsize=(10, 10))
+		pl.title("rHmat")
+		for i in range(len(im.cells)):
+			for j in range(len(im.cells)):
+				pl.plot(qs, rHmat[:,i,j], label=f"{i}, {j}")
+		pl.legend()
+		
+		# pl.figure( figsize=(10, 10))
+		# pl.title("D")
+		# for i in range(len(im.cells)):
+		# 	for j in range(len(im.cells)):
+		# 		pl.plot(qs, DMat[:,i,j], label=f"{i}, {j}")
+		# pl.legend()
+
 		pl.show()
+
+		
 		exit(0)
 		
 		pl.savefig(f"figs/correlators/radia_distrib/{name}.pdf")

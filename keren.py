@@ -12,12 +12,12 @@ def loadImage(fileName, L=800, margin = 15):
 			line = f.readline()
 			if line:
 				cols = line.split(',')
-				if cols[3] in {'Kreatin-positive tumor', 'CD4-T'}:
-					cells[cols[3]].append((float(cols[0]), float(cols[1])))
+				# if cols[3] in {'Kreatin-positive tumor', 'CD4-T'}:
+				cells[cols[3]].append((float(cols[0]), float(cols[1])))
 			else: break
 	for t in cells:
 		ps = np.array(cells[t])
-		inside = (ps[:,0]>margin) & (ps[:,0] < L-margin) & (ps[:,1]>margin) & (ps[:,1] < L-margin)
-		# cells[t] = ps[ np.where(inside) ] - margin
+		inside = (ps[:,0] > margin) & (ps[:,0] < L-margin) & (ps[:,1] > margin) & (ps[:,1] < L-margin)
 		cells[t] = ps[ inside ] - margin
+	cells = {t:cells[t] for t in cells if cells[t].shape[0]>200} #550}
 	return CellDistribution(cells, L-2*margin)
