@@ -134,7 +134,7 @@ def getRadialConvolutionMatrix(dr, n, fs):
 	indsSum = inds[:, np.newaxis] + inds[np.newaxis, :]
 	indsDiff = np.abs(inds[:, np.newaxis] - inds[np.newaxis, :])
 	frsCum = np.cumsum(np.concatenate(([0], fs*rs, np.zeros(n))))
-	return 2 * np.pi * dr**2 * rs[np.newaxis, :] / rs[:, np.newaxis] * (frsCum[indsSum + 1] - frsCum[indsDiff])
+	return 2 * np.pi * dr**2 * rs[np.newaxis, :] * (frsCum[indsSum + 1] - frsCum[indsDiff]) / rs[:, np.newaxis]
 
 class CellDistribution():
 	def __init__(self, cells, W, z = 1, torus = False):
@@ -150,13 +150,54 @@ class CellDistribution():
 		return d
 
 	#This returns g for all cell type pairs, the results are regularized where data is missing. g(0)=0 and g(inf)=1 are assumed.
-	#Perhaps input expected cell sizes to this for bettre guesses?
+	#Perhaps input expected cell sizes to this for better guesses?
 	def getG(self, dr, n):
-		edges = np.arange(n+1)*dr
-		rs = (edges[:-1] + edges[1:]) / 2
-
 		cellCounts = self.getCounts()
 		rhos = self.getRhos()
+
+		edges = np.arange(n+1)*dr
+		rs = (0.5+np.arange(n))*dr
+
+		gridResolution = 3 #assume this is fixed
+		gridEdges = np.linspace(0, self.W, gridResolution+1)
+		gridCellW = gridEdges[1] - gridEdges[0]
+		assert(gridCellW*np.sqrt(2) >= edges[-1])
+		ps = self.cells
+		nComps = len(self.cells)*( len(self.cells) + 1 )*n//2
+		M  = [np.zeros((gridResolution**2+1)//2, nComps), np.zeros((gridResolution**2-1)//2, nComps)]
+		groupI = 2*[0]
+		for i in range(gridResolution**2):
+			group = (i//gridResolution + i%gridResolution) % 2
+			(x0, x1), (y0, y1) = gridEdges[i//gridResolution:i//gridResolution+2], gridEdges[i%gridResolution:i%gridResolution+2]
+			j=0
+			for t1 in self.cells:
+				for t2 in self.cells:
+					if t1 <= t2:
+						c1, c2 = [ps[(ps[:,0] >= x0) & (ps[:,0] < x1) & (ps[:,1] >= y0) & (ps[:,1] < y1)] for ps in [self.cells[t1], self.cells[t2]]]
+						diff = self.cellDiff(c1[:, np.newaxis], c2[np.newaxis, :]).reshape(-1, 2)
+						dists = np.linalg.norm(diff, axis=1)
+						counts, _ = np.histogram(dists[dists>1], edges)
+						M[group, j:j+n, i] = counts / (np.diff([gCum(e/gridCellW)*gridCellW*gridCellW for e in edges]) * len(c1) * len(c2) / gridCellW**2)
+						j += n
+			groupI[group] += 1
+		cov = np.mean([np.cov(M[g, :, :]) for g in range(2)])
+		np.linalg.eigh(cov)
+
+		np.ei
+
+		import matplotlib.pyplot as pl
+		from matplotlib.colors import hsv_to_rgb
+		pl.figure()
+
+		for i in range(gridResolution):
+			for j in range(gridResolution):
+				for t1 in self.cells:
+					for t2 in self.cells:
+						if t1 <= t2:
+							pl.plot(rs, gridGs[i][j][(t1, t2)], color = hsv_to_rgb(((i+gridResolution*j)/gridResolution**2,1,1)))
+		
+		pl.show()
+		exit(0)
 
 		#Distances longer than this are too influenced by boundary effects in crop case
 		#and finite size effects in toroidal case. We set such values to 1
@@ -172,7 +213,7 @@ class CellDistribution():
 					c2 = self.cells[t2]
 					diff = self.cellDiff(c1[:, np.newaxis], c2[np.newaxis, :]).reshape(-1, 2)
 					dists = np.linalg.norm(diff, axis=1)
-					dists = dists[dists>1]
+					dists = dists[dists>0]
 					counts,_ = np.histogram(dists, edges)
 					gMeas = counts / (np.diff([gCum(e/self.W)*self.W*self.W for e in edges]) * self.z * rhos[t1] * cellCounts[t2])
 					interp = 1/(1+np.exp(-(rs-(maxMeasR - nTransitionsCutoff*transitionWidth))/transitionWidth))
@@ -184,9 +225,9 @@ class CellDistribution():
 					kernelN = math.ceil(4*rRes / dr)
 					kernel = np.exp(-np.linspace(-kernelN*dr, kernelN*dr, 2*kernelN+1)**2 / (2*rRes**2))
 					kernel /= np.sum(kernel)
-					# g[(t1,t2)] = gInterp
-					g[(t1,t2)] = np.convolve(np.concatenate([np.zeros(kernelN), gInterp, np.ones(kernelN)]), kernel, mode='valid')
-		return rs, g
+					g[(t1,t2)] = gInterp
+					# g[(t1,t2)] = np.convolve(np.concatenate([np.zeros(kernelN), gInterp, np.ones(kernelN)]), kernel, mode='valid')
+		return g
 
 	def getCounts(self):
 		return {t:self.cells[t].shape[0] for t in self.cells}	
@@ -337,7 +378,7 @@ class CellDistribution():
 
 	#
 	def getC(self, dr, n, basis = None, longRangeReg = 0, highFreqReg = 0):
-		_, gs = self.getG(dr, n)
+		gs = self.getG(dr, n)
 
 		dq=np.pi/n/dr
 		qs = (0.5+np.arange(n)) * dq
@@ -347,21 +388,13 @@ class CellDistribution():
 		nt = len(types)
 		rhos = self.getRhos()
 		rhoVec = np.array([rhos[t] for t in types])
-		H = np.zeros((n, len(types), len(types)))
-		for i in range(len(types)):
-			for j in range(len(types)):
-				g = gs[(min(types[i], types[j]), max(types[i], types[j]))]
-				qs, H[:,i,j] = radialFourierTransformRToQ(rs,  (g - 1)*np.exp(-0*rs**2/(2*200**2)))
 		
-		lhs = np.eye(len(types))[np.newaxis,:,:] + rhoVec[np.newaxis, np.newaxis, :]*H
-		rhs = H
 		if longRangeReg>0 or highFreqReg>0:
 			h = np.zeros((n, len(types), len(types)))
 			for i in range(len(types)):
 				for j in range(len(types)):
-					h[:,i,j] =  gs[(min(types[i], types[j]), max(types[i], types[j]))] - 1
+					h[:,i,j] = gs[(min(types[i], types[j]), max(types[i], types[j]))] - 1
 
-			weightsByQ = np.ones(qs.shape)
 			xInd_To_CT1T2Q = [(t1, t2, qi) for t1 in range(nt) for t2 in range(nt) for qi in range(n) if types[t1]<=types[t2]]
 			CT1T2Q_To_xInd = {**{xInd_To_CT1T2Q[i]:i for i in range(len(xInd_To_CT1T2Q))}, **{(xInd_To_CT1T2Q[i][1], xInd_To_CT1T2Q[i][0], xInd_To_CT1T2Q[i][2]):i for i in range(len(xInd_To_CT1T2Q))}}
 
@@ -374,7 +407,7 @@ class CellDistribution():
 				for t1Eq in range(nt):
 					for t1C in range(nt):
 						xInd = CT1T2Q_To_xInd[(t1C, t2Eq, 0)]
-						A[eqInd:eqInd+n, xInd:xInd+n] = getRadialConvolutionMatrix(dr, n, rhoVec[t1C]*h[:, t1Eq, t1C])
+						A[eqInd:eqInd+n, xInd:xInd+n] += getRadialConvolutionMatrix(dr, n, rhoVec[t1C]*h[:, t1Eq, t1C])
 						if t1Eq==t1C:
 							A[eqInd:eqInd+n, xInd:xInd+n] += np.eye(n)
 						b[eqInd:eqInd+n] = h[:, t1Eq, t2Eq]
@@ -383,13 +416,13 @@ class CellDistribution():
 			for t2C in range(nt):
 				for t1C in range(t2C+1):
 					xInd = CT1T2Q_To_xInd[(t1C, t2C, 0)]
-					A[eqInd:eqInd+n-1, xInd:xInd+n] = highFreqReg / np.sqrt(dr) * (np.diag(np.ones(n)) - np.diag(np.ones(n-1), 1))[:-1, :] * rs[1:][:, np.newaxis]/20
+					A[eqInd:eqInd+n-1, xInd:xInd+n] = 0*highFreqReg / np.sqrt(dr) * (np.diag(np.ones(n)) - np.diag(np.ones(n-1), 1))[:-1, :] * rs[1:][:, np.newaxis]/20
 					eqInd += n-1
 			
 			for t2C in range(nt):
 				for t1C in range(t2C+1):
 					xInd = CT1T2Q_To_xInd[(t1C, t2C, 0)]
-					A[eqInd:eqInd+n, xInd:xInd+n] = longRangeReg * np.sqrt(dr) * np.eye(n) * rs**2
+					A[eqInd:eqInd+n, xInd:xInd+n] = 0*longRangeReg * np.sqrt(dr) * np.eye(n) * rs**2
 					eqInd += n
 
 			assert(eqInd == A.shape[0])
@@ -398,8 +431,9 @@ class CellDistribution():
 			# pl.imshow(A==0)
 			# pl.show()
 			# exit(0)
-			print("Solving..")
-			x = np.linalg.lstsq(A, b, rcond=None)[0]		
+			print("Solving c..")
+			x, res, rank, _ = np.linalg.lstsq(A, b, rcond=None)
+			print(res, rank, A.shape, nComps*n)
 			print("done.")
 			CMat = np.zeros((n, nt, nt))
 			for i in range(len(xInd_To_CT1T2Q)):
@@ -407,8 +441,16 @@ class CellDistribution():
 				CMat[cInds[2], cInds[0], cInds[1]] = x[i]
 				CMat[cInds[2], cInds[1], cInds[0]] = x[i]
 			c = {(t1,t2):CMat[:, types.index(t1), types.index(t2)] for t1 in types for t2 in types if t1<=t2}
-			return rs, c
+			return c
 		else:
+			H = np.zeros((n, len(types), len(types)))
+			for i in range(len(types)):
+				for j in range(len(types)):
+					g = gs[(min(types[i], types[j]), max(types[i], types[j]))]
+					qs, H[:,i,j] = radialFourierTransformRToQ(rs,  (g - 1)*np.exp(-0*rs**2/(2*200**2)))
+			
+			lhs = np.eye(len(types))[np.newaxis,:,:] + rhoVec[np.newaxis, np.newaxis, :]*H
+			rhs = H
 			if basis:
 				A = []
 				b = []
@@ -436,7 +478,7 @@ class CellDistribution():
 		
 		c = {(t1,t2):radialFourierTransformQToR(qs, CMat[:, types.index(t1), types.index(t2)])[1] for t1 in types for t2 in types if t1<=t2}
 		# c = {(t1,t2):CMat[:, types.index(t1), types.index(t2)] for t1 in types for t2 in types if t1<=t2}
-		return rs, c
+		return c
 	
 
 	def getGFromC(self, c, dr, n, matrixConv = True):
@@ -470,7 +512,11 @@ class CellDistribution():
 
 			assert(eqInd == A.shape[0])
 
-			x = np.linalg.lstsq(A, b, rcond=None)[0]
+			print("Solving h..")
+			x, res, _, _ = np.linalg.lstsq(A, b, rcond=None)
+			print(res)
+			print("done.")
+
 			HMat = np.zeros((n, nt, nt))
 			for i in range(len(xInd_To_CT1T2Q)):
 				cInds = xInd_To_CT1T2Q[i]

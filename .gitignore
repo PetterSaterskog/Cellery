@@ -3,6 +3,6 @@ figs
 *.pickle
 *.nb
 montecarloFigs
-keren_cell_positions_data
+images
 .DS_Store
 __pycache__
