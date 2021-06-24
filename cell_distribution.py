@@ -158,13 +158,16 @@ class CellDistribution():
 		edges = np.arange(n+1)*dr
 		rs = (0.5+np.arange(n))*dr
 
+		# we assume grid cells that are not direct neighbors are independent. This is a bit optimistic.
+		# We also average over the direct neighbors, and they are not completely indep but we do not count this as reducing variance, this is a bit conservative.
 		gridResolution = 3 #assume this is fixed
 		gridEdges = np.linspace(0, self.W, gridResolution+1)
 		gridCellW = gridEdges[1] - gridEdges[0]
-		assert(gridCellW*np.sqrt(2) >= edges[-1])
-		ps = self.cells
-		nComps = len(self.cells)*( len(self.cells) + 1 )*n//2
-		M  = [np.zeros((gridResolution**2+1)//2, nComps), np.zeros((gridResolution**2-1)//2, nComps)]
+		margin = 0.2
+		assert(gridCellW*np.sqrt(2)*(1-margin) >= edges[-1])
+
+		assert(gridResolution%2==1)
+		M  = [np.zeros((n*len(self.cells)*( len(self.cells) + 1 )//2, groupSize)) for groupSize in [(gridResolution**2+1)//2, (gridResolution**2-1)//2]] #this depends on gridResolution being odd
 		groupI = 2*[0]
 		for i in range(gridResolution**2):
 			group = (i//gridResolution + i%gridResolution) % 2
@@ -177,24 +180,43 @@ class CellDistribution():
 						diff = self.cellDiff(c1[:, np.newaxis], c2[np.newaxis, :]).reshape(-1, 2)
 						dists = np.linalg.norm(diff, axis=1)
 						counts, _ = np.histogram(dists[dists>1], edges)
-						M[group, j:j+n, i] = counts / (np.diff([gCum(e/gridCellW)*gridCellW*gridCellW for e in edges]) * len(c1) * len(c2) / gridCellW**2)
+						M[group][j:j+n, groupI[group]] = counts / (np.diff([gCum(e/gridCellW)*gridCellW*gridCellW for e in edges]) * len(c1) * len(c2) / gridCellW**2)
 						j += n
 			groupI[group] += 1
-		cov = np.mean([np.cov(M[g, :, :]) for g in range(2)])
-		np.linalg.eigh(cov)
+		averageByGroup = [np.mean(M[g], axis=1) for g in range(2)]
+		covByGroup = [np.cov(M[g]) / groupI[g] for g in range(2)] #estimate of covariance of components in g in a single grid cell
+		#the end result is the average over many different grid cells and we assume non-neighboring ones are indep. covariance is simply summed assuming iid vars. Average contributes 1/
+		
+		#in the end we just average the two groups. Since they are not independent, we do not reduce the covariance
+		average, cov = [np.average(v, axis=0, weights=groupI) for v in [averageByGroup, covByGroup]]
 
-		np.ei
+		vals, vecs = np.linalg.eigh(cov) #vecs[:, i] is the i:th vector
+		
+		# np.ei
 
 		import matplotlib.pyplot as pl
 		from matplotlib.colors import hsv_to_rgb
 		pl.figure()
 
-		for i in range(gridResolution):
-			for j in range(gridResolution):
-				for t1 in self.cells:
-					for t2 in self.cells:
-						if t1 <= t2:
-							pl.plot(rs, gridGs[i][j][(t1, t2)], color = hsv_to_rgb(((i+gridResolution*j)/gridResolution**2,1,1)))
+		# for i in range(gridResolution):
+			# for j in range(gridResolution):
+		j=0
+		for t1 in self.cells:
+			for t2 in self.cells:
+				if t1 <= t2:
+					col = hsv_to_rgb((j/(n*(len(self.cells)+1)*len(self.cells)/2),1,1))
+					for g in range(2):
+						pl.errorbar(rs, averageByGroup[g][j:j+n], yerr=np.sqrt(np.diag(covByGroup[g])[j:j+n]), color = col, linestyle = ['-','--'][g])
+					j+=n
+
+		pl.figure()
+		j=0
+		for t1 in self.cells:
+			for t2 in self.cells:
+				if t1 <= t2:
+					col = hsv_to_rgb((j/(n*(len(self.cells)+1)*len(self.cells)/2),1,1))
+					pl.errorbar(rs, average[j:j+n], yerr=np.sqrt(np.diag(cov)[j:j+n]), color = col)
+					j+=n
 		
 		pl.show()
 		exit(0)

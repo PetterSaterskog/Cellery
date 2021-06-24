@@ -11,7 +11,7 @@ from cell_distribution import generateCellDistribution, CellDistribution, radial
 import pickle
 from matplotlib.colors import hsv_to_rgb
 
-inputDir = "keren_cell_positions_data"
+inputDir = "images/keren"
 
 for fn in os.listdir(inputDir):
 	name = fn[:-19]
@@ -39,8 +39,8 @@ for fn in os.listdir(inputDir):
 
 	im.z = 20 #15 #um			
 	
-	dr = 1.5
-	n = 200
+	dr = 1
+	n = 290
 	dq=np.pi/n/dr
 	rs = (0.5+np.arange(n)) * dr
 
