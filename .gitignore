@@ -1,4 +1,5 @@
 figs
+out
 *.swp
 *.pickle
 *.nb
