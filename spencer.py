@@ -74,7 +74,7 @@ def loadMarkers(fileName):
 		colNames = f.readline().split(',')
 		markerColumns = {m: colNames.index(m) for m in differentiators}
 		positionColumns = {m: colNames.index(m) for m in position}
-		while True:# and len(ps)<20000:
+		while True:# and len(ps)<10000:
 			line = f.readline()
 			if line:
 				cols = line.split(',')
@@ -83,13 +83,13 @@ def loadMarkers(fileName):
 			else: break
 	return np.array(ps), np.array(ds)
 
-def extractCellTypes(ds, nCellTypes = 15):
+def extractCellTypes(ds, nCellTypes = 15, minSize=100):
 	import umap
 	import hdbscan
 
 	n_neighbors=30
 	min_dist=.0
-	n_components=4
+	n_components=5
 	metric='euclidean'
 	
 	reducer = umap.UMAP(
@@ -101,9 +101,10 @@ def extractCellTypes(ds, nCellTypes = 15):
 	print(f"Zeroes: {ds[ds==0].flatten().shape[0]}")
 	ds[ds==0] = 1
 	data = np.log(ds)
+	print("umap...")
 	u = reducer.fit_transform(data)
-
-	labels = hdbscan.HDBSCAN(min_samples=nCellTypes, min_cluster_size=200).fit_predict(u)
+	print("hdbscan...")
+	labels = hdbscan.HDBSCAN(min_samples=nCellTypes, min_cluster_size=minSize).fit_predict(u)
 	return labels
 
 	# for i in range(0):
@@ -149,27 +150,102 @@ def extractCellTypes(ds, nCellTypes = 15):
 if __name__ == "__main__":
 	import matplotlib.pyplot as pl
 	files = ["slide_1_measurements.csv", "slide_2_measurements.csv", "slide_3_measurements.csv"]
+	
+	print("Loading...")
+	cells = [loadMarkers(f) for f in files]
+	markers = [c[1] for c in cells]
+	allMarkers = np.concatenate([c[1] for c in cells])
 
-	for f in files:
-		typeFile = inputDir+"/"+f[:-4]+"_types.csv"
-
-		if False:
-			ps , ds = loadMarkers(f)
-			types = extractCellTypes(ds, nCellTypes = 10)
-			np.savetxt(typeFile, np.append(ps, np.array([types]).T, axis=1), delimiter=', ', header='x µm, y µm, type (-1 = unknown)')
+	if True:
+		types = extractCellTypes(allMarkers, nCellTypes = 10, minSize=300)
+		n=0
+		for i in range(len(markers)):
+			typeFile = inputDir+"/"+files[i][:-4]+"_types.csv"
+			np.savetxt(typeFile, types[n:n+len(markers[i])])
+			n += len(markers[i])
+	
+	types = [np.loadtxt(inputDir+"/"+f[:-4]+"_types.csv") for f in files]
+	
+	markersByType = defaultdict(lambda: [])
+	for i in range(len(files)):
+		for j in range(len(markers[i])):
+			markersByType[types[i][j]].append(markers[i][j])
+	
+	orderedMarkers = sorted(markersByType.keys())
+	def markerName(m):
+		return f"{m}: {100*markersByType[m].shape[0] / allMarkers.shape[0]:.1f}%"
+	
+	for m in orderedMarkers:
+		markersByType[m] = np.array(markersByType[m])
+		print(markerName(m))
+	
+	def plotHist(vals, linestyle, label, n=50, color=None, edges = None):
+		if edges is None:
+			edges = np.linspace(np.min(vals), np.max(vals), n+1)
+		counts,_ = np.histogram(vals, edges)
+		pl.plot(np.repeat(edges, 2)[1:-1], np.repeat(counts, 2), linestyle=linestyle, label=label, color=color)
+		return edges
 		
-		cells = np.loadtxt(typeFile, delimiter=', ', skiprows=1)
-		pl.figure(figsize=(14, 14))
-		pl.scatter(cells[:,0], cells[:,1], c=cells[:,2], s=0.1, cmap='hsv')
+	def clipLog(a):
+		return np.log(np.clip(a, 1, None))
+	
+
+	for i,d in enumerate(differentiators):
+		pl.figure(figsize=(8, 6))
+		pl.title(d)
+		edges = plotHist(clipLog(allMarkers[:, i]), linestyle='-', label="all", color='black')
+		for m in orderedMarkers:
+			plotHist(clipLog(markersByType[m][:, i]), linestyle='-', label=markerName(m), edges=edges)
+		pl.gca().set_yscale("log")
+		pl.xlabel(f"log({d})")
+		pl.legend()
+		pl.savefig(f"out/spencer/spencer_hists_{d}.pdf")
+		pl.close()
+	
+
+	for i, f in enumerate(files):
+		ps = cells[i][0]
+		pl.figure(figsize=(50,50))
+		for m in orderedMarkers:
+			isForType = types[i]==m
+			pl.plot(ps[isForType,0], ps[isForType,1], label = markerName(m), linestyle="None", marker='.')
+		pl.legend(loc="upper right")
 		pl.gca().axis('equal')
-		pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}.pdf")
+		pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}.png")
 
 		pl.figure(figsize=(14, 14))
 		margin = 1700
 		L= 5000
-		inside =  (cells[:,0] > margin) & (cells[:,0] < L-margin) & (cells[:,1] > margin) & (cells[:,1] < L-margin)
-		pl.scatter(cells[inside,0], cells[inside,1], c=cells[inside,2], s=3, cmap='hsv')
+		for m in orderedMarkers:
+			isForType = (types[i]==m) & (ps[:,0] > margin) & (ps[:,0] < L-margin) & (ps[:,1] > margin) & (ps[:,1] < L-margin)
+			pl.plot(ps[isForType,0], ps[isForType,1], label = markerName(m), linestyle="None", marker='.')
 		pl.gca().axis('equal')
-		pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}_small.pdf")
+		pl.legend(loc="upper right")
+		pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}_small.png")
+	pl.show()	
+	exit(0)
+
+	if False:
+		for f in files:
+			typeFile = inputDir+"/"+f[:-4]+"_types.csv"
+
+			if True:
+				ps , ds = loadMarkers(f)
+				types = extractCellTypes(ds, nCellTypes = 20)
+				np.savetxt(typeFile, np.append(ps, np.array([types]).T, axis=1), delimiter=', ', header='x µm, y µm, type (-1 = unknown)')
+			
+			cells = np.loadtxt(typeFile, delimiter=', ', skiprows=1)
+			pl.figure(figsize=(14, 14))
+			pl.scatter(cells[:,0], cells[:,1], c=cells[:,2], s=0.1, cmap='hsv')
+			pl.gca().axis('equal')
+			pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}.pdf")
+
+			pl.figure(figsize=(14, 14))
+			margin = 1700
+			L= 5000
+			inside =  (cells[:,0] > margin) & (cells[:,0] < L-margin) & (cells[:,1] > margin) & (cells[:,1] < L-margin)
+			pl.scatter(cells[inside,0], cells[inside,1], c=cells[inside,2], s=3, cmap='hsv')
+			pl.gca().axis('equal')
+			pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}_small.pdf")
 	pl.show()
 	
