@@ -74,7 +74,7 @@ def loadMarkers(fileName):
 		colNames = f.readline().split(',')
 		markerColumns = {m: colNames.index(m) for m in differentiators}
 		positionColumns = {m: colNames.index(m) for m in position}
-		while True:# and len(ps)<10000:
+		while True:# and len(ps)<1000:
 			line = f.readline()
 			if line:
 				cols = line.split(',')
@@ -150,21 +150,25 @@ def extractCellTypes(ds, nCellTypes = 15, minSize=100):
 if __name__ == "__main__":
 	import matplotlib.pyplot as pl
 	files = ["slide_1_measurements.csv", "slide_2_measurements.csv", "slide_3_measurements.csv"]
-	
+	expName = "8types"
+	outFolder = f"out/spencer/{expName}"
+	from pathlib import Path
+	Path(outFolder).mkdir(parents=True, exist_ok=True)
+
 	print("Loading...")
 	cells = [loadMarkers(f) for f in files]
 	markers = [c[1] for c in cells]
 	allMarkers = np.concatenate([c[1] for c in cells])
 
 	if True:
-		types = extractCellTypes(allMarkers, nCellTypes = 10, minSize=300)
+		types = extractCellTypes(allMarkers, nCellTypes = 8, minSize=150)
 		n=0
 		for i in range(len(markers)):
-			typeFile = inputDir+"/"+files[i][:-4]+"_types.csv"
+			typeFile = f"{inputDir}/{files[i][:-4]}types_{expName}.csv"
 			np.savetxt(typeFile, types[n:n+len(markers[i])])
 			n += len(markers[i])
 	
-	types = [np.loadtxt(inputDir+"/"+f[:-4]+"_types.csv") for f in files]
+	types = [np.loadtxt(f"{inputDir}/{f[:-4]}types_{expName}.csv") for f in files]
 	
 	markersByType = defaultdict(lambda: [])
 	for i in range(len(files)):
@@ -199,7 +203,7 @@ if __name__ == "__main__":
 		pl.gca().set_yscale("log")
 		pl.xlabel(f"log({d})")
 		pl.legend()
-		pl.savefig(f"out/spencer/spencer_hists_{d}.pdf")
+		pl.savefig(f"{outFolder}/spencer_hists_{d}.pdf")
 		pl.close()
 	
 
@@ -211,7 +215,7 @@ if __name__ == "__main__":
 			pl.plot(ps[isForType,0], ps[isForType,1], label = markerName(m), linestyle="None", marker='.')
 		pl.legend(loc="upper right")
 		pl.gca().axis('equal')
-		pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}.png")
+		pl.savefig(f"{outFolder}/spencer_celltypes_{f[:7]}.png")
 
 		pl.figure(figsize=(14, 14))
 		margin = 1700
@@ -221,7 +225,7 @@ if __name__ == "__main__":
 			pl.plot(ps[isForType,0], ps[isForType,1], label = markerName(m), linestyle="None", marker='.')
 		pl.gca().axis('equal')
 		pl.legend(loc="upper right")
-		pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}_small.png")
+		pl.savefig(f"{outFolder}/spencer_celltypes_{f[:7]}_small.png")
 	pl.show()	
 	exit(0)
 
@@ -238,7 +242,7 @@ if __name__ == "__main__":
 			pl.figure(figsize=(14, 14))
 			pl.scatter(cells[:,0], cells[:,1], c=cells[:,2], s=0.1, cmap='hsv')
 			pl.gca().axis('equal')
-			pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}.pdf")
+			pl.savefig(f"{outFolder}/spencer_celltypes_{f[:7]}.pdf")
 
 			pl.figure(figsize=(14, 14))
 			margin = 1700
