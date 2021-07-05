@@ -83,28 +83,34 @@ def loadMarkers(fileName):
 			else: break
 	return np.array(ps), np.array(ds)
 
-def extractCellTypes(ds, nCellTypes = 15, minSize=100):
-	import umap
-	import hdbscan
-
-	n_neighbors=30
-	min_dist=.0
-	n_components=5
-	metric='euclidean'
+def extractCellTypes(ds, min_samples = 15, minSize=100, loadCache=None, saveCache=None):
+	if loadCache:
+		u = np.loadtxt(loadCache, delimiter = ', ')
+	else:
+		import umap
+		n_neighbors=30
+		min_dist=.0
+		n_components=5
+		metric='euclidean'
+		
+		reducer = umap.UMAP(
+			n_neighbors=n_neighbors,
+			min_dist=min_dist,
+			n_components=n_components,
+			metric=metric,
+			random_state=0,
+		)
+		print(f"Zeroes: {ds[ds==0].flatten().shape[0]}")
+		ds[ds==0] = 1
+		data = np.log(ds)
+		print("umap...")
+		u = reducer.fit_transform(data)
+		if saveCache:
+			np.savetxt(saveCache, u, delimiter = ', ')
 	
-	reducer = umap.UMAP(
-		n_neighbors=n_neighbors,
-		min_dist=min_dist,
-		n_components=n_components,
-		metric=metric
-	)
-	print(f"Zeroes: {ds[ds==0].flatten().shape[0]}")
-	ds[ds==0] = 1
-	data = np.log(ds)
-	print("umap...")
-	u = reducer.fit_transform(data)
 	print("hdbscan...")
-	labels = hdbscan.HDBSCAN(min_samples=nCellTypes, min_cluster_size=minSize).fit_predict(u)
+	import hdbscan
+	labels = hdbscan.HDBSCAN(min_samples=min_samples, min_cluster_size=minSize).fit_predict(u)
 	return labels
 
 	# for i in range(0):
@@ -150,7 +156,8 @@ def extractCellTypes(ds, nCellTypes = 15, minSize=100):
 if __name__ == "__main__":
 	import matplotlib.pyplot as pl
 	files = ["slide_1_measurements.csv", "slide_2_measurements.csv", "slide_3_measurements.csv"]
-	expName = "8types"
+	nCellTypes = 1
+	expName = f"{nCellTypes}types"
 	outFolder = f"out/spencer/{expName}"
 	from pathlib import Path
 	Path(outFolder).mkdir(parents=True, exist_ok=True)
@@ -161,14 +168,14 @@ if __name__ == "__main__":
 	allMarkers = np.concatenate([c[1] for c in cells])
 
 	if True:
-		types = extractCellTypes(allMarkers, nCellTypes = 8, minSize=150)
+		types = extractCellTypes(allMarkers, minSize=1000, saveCache=f"{outFolder}/cache_umap.csv", loadCache=f"out/spencer/cache_umap.csv")
 		n=0
 		for i in range(len(markers)):
-			typeFile = f"{inputDir}/{files[i][:-4]}types_{expName}.csv"
+			typeFile = f"{outFolder}/{files[i][:-4]}_types.csv"
 			np.savetxt(typeFile, types[n:n+len(markers[i])])
 			n += len(markers[i])
 	
-	types = [np.loadtxt(f"{inputDir}/{f[:-4]}types_{expName}.csv") for f in files]
+	types = [np.loadtxt(f"{outFolder}/{f[:-4]}_types.csv") for f in files]
 	
 	markersByType = defaultdict(lambda: [])
 	for i in range(len(files)):
@@ -216,6 +223,7 @@ if __name__ == "__main__":
 		pl.legend(loc="upper right")
 		pl.gca().axis('equal')
 		pl.savefig(f"{outFolder}/spencer_celltypes_{f[:7]}.png")
+		pl.close()
 
 		pl.figure(figsize=(14, 14))
 		margin = 1700
@@ -226,7 +234,8 @@ if __name__ == "__main__":
 		pl.gca().axis('equal')
 		pl.legend(loc="upper right")
 		pl.savefig(f"{outFolder}/spencer_celltypes_{f[:7]}_small.png")
-	pl.show()	
+		pl.close()
+	
 	exit(0)
 
 	if False:
@@ -251,5 +260,5 @@ if __name__ == "__main__":
 			pl.scatter(cells[inside,0], cells[inside,1], c=cells[inside,2], s=3, cmap='hsv')
 			pl.gca().axis('equal')
 			pl.savefig(f"out/spencer/spencer_celltypes_{f[:7]}_small.pdf")
-	pl.show()
+	# pl.show()
 	
