@@ -5,19 +5,21 @@ from scipy import signal
 import matplotlib.animation as animation
 from scipy.spatial import cKDTree
 #micrometers
-L = 4000
+L = 5000
 
 dt = 0.1 #hours
 cellRad = 10 #this assumes no gap, just defined through volPerCell
 volPerCell = cellRad**2*np.pi
-immuneFraction = 0.01
+immuneFraction = 0.03
 
 nCells = L**2 / volPerCell
 
 types = ['healthy', 'cancer', 'immune']
 colors = {'healthy':(0,1,0), 'cancer':(1,0,0), 'immune':(0,0,1)}
 cells = {'healthy':np.random.rand(int(nCells*(1-immuneFraction)),2)*L, 'cancer':np.array([[L/2, L/2]]), 'immune':np.random.rand(int(nCells*immuneFraction),2)*L,}
-switchMat = {('cancer', 'immune'):0.8, ('cancer', 'healthy'):0.0, ('healthy','immune'):1.5}
+switchMat = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):0.5, ('healthy','immune'):1.5}
+cancerGrowth = 0.03
+immuneGrowth = 0.04
 
 frames = 0
 def updatefig(*args):
@@ -70,10 +72,10 @@ def updatefig(*args):
 		for ci in range(cells[t1].shape[0]):
 			cc = cells[t1][ci, :]
 			if t1=='cancer':
-				growth = 0.1
+				growth = cancerGrowth
 			elif t1=='immune':
 				if len(trees['cancer'].query_ball_point(cc, 3*cellRad))>0:
-					growth = 0.11
+					growth = immuneGrowth
 				else:
 					growth = 0
 			if np.random.rand()<dt*growth:
@@ -112,13 +114,13 @@ for t in cells:
 pl.xlabel("x [μm]")
 pl.ylabel("y [μm]")
 
-anim = animation.FuncAnimation(fig, updatefig, interval=10, blit=True, frames=100000)
+anim = animation.FuncAnimation(fig, updatefig, interval=10, blit=True, frames=100_000)
 writervideo = animation.FFMpegWriter(fps=30) 
 
 outFolder = "out/tumorSim"
 from pathlib import Path
 Path(outFolder).mkdir(parents=True, exist_ok=True)
 diff=str(list(switchMat.values()))
-anim.save(f"{outFolder}/tumor_L={L}_diffusion={diff[1:-1]}.avi", writer=writervideo)
+anim.save(f"{outFolder}/tumor_L={L}_diffusion={diff[1:-1]}_cancerGrowth={cancerGrowth}_immuneGrowth={immuneGrowth}.avi", writer=writervideo)
 
 # pl.show()
