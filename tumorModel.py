@@ -75,18 +75,19 @@ class Tumor():
 		self.cellPositions, self.cellTypes = self.cellPositions[inside], self.cellTypes[inside]
 		return toSplit.shape[0]
 
-	def plot(self):
-		colors = {'healthy':(0,.8,0), 'cancer':(1,0,0), 'immune':(0,0,1)}
-		fig = pl.figure(figsize=(16,16))
-		for i in range(len(types)):
-			ps = self.cellPositions[self.cellTypes==i]
-			pl.scatter(ps[:,0], ps[:,1], s=2, color=colors[types[i]], label=types[i])
-		pl.xlabel("x [μm]")
-		pl.ylabel("y [μm]")
-		pl.axis('square')
-		pl.legend()
+def plot(cellPositions, cellTypes):
+	colors = {'healthy':(0,.8,0), 'cancer':(1,0,0), 'immune':(0,0,1)}
+	fig = pl.figure(figsize=(16,16))
+	for i in range(len(types)):
+		ps = cellPositions[cellTypes==i]
+		pl.scatter(ps[:,0], ps[:,1], s=1, color=colors[types[i]], label=types[i])
+	pl.xlabel("x [μm]")
+	pl.ylabel("y [μm]")
+	pl.axis('square')
+	pl.legend()
 	
 if __name__ == "__main__":
 	tm = TumorModel(immuneFraction=0.03, growth={'cancer':0.3, 'immune':0.1}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):0.4, ('healthy','immune'):1.5})
-	Tumor(tm, verbose=True).plot()
+	tumor = Tumor(tm, verbose=True)
+	plot(tumor.cellPositions, tumor.cellTypes)
 	pl.show()

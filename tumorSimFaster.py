@@ -12,7 +12,7 @@ L = 5000
 d = 2
 dt = 0.1 #hours
 diffusion = {('cancer', 'immune'):0.0,
-				('cancer', 'healthy'):0.5,
+				('cancer', 'healthy'):0.4,
 				('healthy','immune'):1.5}
 
 cellRad = 10 #this assumes no gap, just defined through volPerCell
@@ -40,7 +40,25 @@ cellTypes[-nCancer:] = 1
 # cellPositions[-1, :] = np.ones((2,))*L/2
 
 cancerGrowth = 0.03
-immuneGrowth = 0.01
+immuneGrowth = 0.015
+
+class TumorModel():
+	def __init__(self, cellVolume, neighborDist, growth, diffusion):
+		self.dt = 0.2 / max(max(growth), max(diffusion)) #ensure the most common event only happens every 5 steps for small dt convergence
+		self.cellVolume = cellVolume
+		self.splitDist = np.array(cellVolume)
+		self.growth = growth
+		self.neighborDist = neighborDist
+		self.diffusionMat = np.zeros([len(types)]*2)
+		for p in diffusion:
+			self.diffusionMat[types.index(p[0]), types.index(p[1])] = diffusion[p]
+			self.diffusionMat[types.index(p[1]), types.index(p[0])] = diffusion[p]
+	
+	def update(dt=1.0, cancerGrowth, immuneGrowth, neighboorDist, diffusion):
+	
+class Tumor():
+	def __init__(self, tumorModel):
+def getTumor(L, tumorModel)
 
 frames = 0
 def updatefig(*args):
@@ -128,7 +146,7 @@ for i in range(len(types)):
 pl.xlabel("x [μm]")
 pl.ylabel("y [μm]")
 
-anim = animation.FuncAnimation(fig, updatefig, interval=10, blit=True, frames=100_000)
+anim = animation.FuncAnimation(fig, updatefig, interval=10, blit=True, frames=int(2_000/dt))
 writervideo = animation.FFMpegWriter(fps=30) 
 
 outFolder = "out/tumorSim"
