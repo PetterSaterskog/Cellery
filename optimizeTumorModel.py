@@ -74,15 +74,25 @@ cellEffR =  dict(zip(tumorModel.types, np.sqrt(cellVolumes/tumorModel.SphereVol(
 print(f"Cell effective radii by type: [h,c,i] = {cellEffR} μm")
 
 
-
-# diffs = np.geomspace(0.5,3.0,4)
-# imGrowths = np.geomspace(0.01,1.0,5)
 L=500
+cases = []
 for immuneGrowth in np.geomspace(0.01,0.1,3):
 	for cancerDiff in np.geomspace(0.1,10,3):
 		for immuneDiff in np.geomspace(0.25,25,3):
-			tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, growth={'cancer':1.0, 'immune':immuneGrowth}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):cancerDiff, ('healthy','immune'):immuneDiff})
-			tumor = tumorModel.Tumor(tm, L=L, verbose=True, tumorCellRatio=0.95)
-			tumorModel.plot(tumor.cellPositions, tumor.cellTypes)
-			pl.savefig(f"{outFolder}/L={L}_immuneGrowth=_{immuneGrowth:.2f}_cancerDiff=_{cancerDiff:.2f}_immuneDiff=_{immuneDiff:.2f}.png")
-			pl.close()
+			cases.append((L, immuneGrowth, cancerDiff, immuneDiff))
+
+def testModel(params):
+	L, immuneGrowth, cancerDiff, immuneDiff = params
+	name = f"L={L}_immuneGrowth=_{immuneGrowth:.2f}_cancerDiff=_{cancerDiff:.2f}_immuneDiff=_{immuneDiff:.2f}"
+	tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, growth={'cancer':1.0, 'immune':immuneGrowth}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):cancerDiff, ('healthy','immune'):immuneDiff})
+	tumor = tumorModel.Tumor(tm, L=L, verbose=False, tumorCellRatio=0.95)
+	np.savetxt(f"{outFolder}/{name}_positions.csv", tumor.cellPositions, delimiter = ', ')
+	np.savetxt(f"{outFolder}/{name}_types.csv", tumor.cellTypes)
+	tumorModel.plot(tumor.cellPositions, tumor.cellTypes)
+	pl.savefig(f"{outFolder}/{name}.png")
+	pl.close()
+	print(f"{name} done!")
+
+import multiprocessing as mp
+# mp.set_start_method('spawn')
+mp.Pool().map(testModel, cases)
