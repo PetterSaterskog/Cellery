@@ -7,7 +7,8 @@ from scipy.spatial import cKDTree
 #micrometers
 L = 5000
 
-dt = 0.1 #hours
+dt = 0.05 #hours
+
 cellRad = 10 #this assumes no gap, just defined through volPerCell
 volPerCell = cellRad**2*np.pi
 immuneFraction = 0.03
@@ -107,7 +108,7 @@ def updatefig(*args):
 	frames += 1
 	return sc.values()
 
-fig = pl.figure(figsize=(12,12))
+fig = pl.figure(figsize=(16,16))
 sc={}
 for t in cells:
 	sc[t] = pl.scatter(cells[t][:,0],cells[t][:,1], s=2, color=colors[t])
