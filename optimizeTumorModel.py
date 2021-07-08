@@ -1,10 +1,5 @@
-import numpy as np
-import matplotlib.pyplot as pl
-import os
-from shapely.geometry import Polygon, Point
+# Petter Saterskog, 2021
 
-import tumorModel
-import spencer
 
 # direct measurements:
 # immuneFraction
@@ -27,6 +22,18 @@ import spencer
 #
 # This is doubly overdetermined with 3 parameters, and ~6 observables. A successful fit thus indicates that our model is an effective description of the tumor dynamics.
 
+import numpy as np
+import matplotlib.pyplot as pl
+import os
+from shapely.geometry import Polygon, Point
+
+import tumorModel
+import spencer
+
+outFolder = f"out/optimizeTumorModel"
+from pathlib import Path
+Path(outFolder).mkdir(parents=True, exist_ok=True)
+
 referencePositions =  spencer.loadMarkers("slide_1_measurements.csv")[0]
 referenceTypes = np.loadtxt(f"{spencer.inputDir}/slide_1_measurementstypes_8types.csv")
 refTypeIds = [0, 7, 3]
@@ -41,8 +48,11 @@ regionDir = f"{spencer.inputDir}/regions/slide1/"
 regions = {}
 for fn in os.listdir(regionDir):
 	ext = np.loadtxt(regionDir + fn, delimiter = ",")
-	pl.plot(ext[:,0], ext[:,1], label=fn[:-4])
+	pl.plot(ext[:,0], ext[:,1], label=fn[:-4], color=(1,0,1))
 	regions[fn[:-4]] = Polygon(ext)
+pl.savefig(f"{outFolder}/reference.png")
+pl.close()
+
 regions['healthy'] = regions['healthy1'].union(regions['healthy2'])
 del regions['healthy1']
 del regions['healthy2']
@@ -67,8 +77,12 @@ print(f"Cell effective radii by type: [h,c,i] = {cellEffR} μm")
 
 # diffs = np.geomspace(0.5,3.0,4)
 # imGrowths = np.geomspace(0.01,1.0,5)
-
-tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, growth={'cancer':1.0, 'immune':0.03}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):0.4, ('healthy','immune'):1.5})
-tumor = tumorModel.Tumor(tm, L=5000, verbose=True, tumorCellRatio=0.9)
-tumorModel.plot(tumor.cellPositions, tumor.cellTypes)
-pl.show()
+L=500
+for immuneGrowth in np.geomspace(0.01,0.1,3):
+	for cancerDiff in np.geomspace(0.1,10,3):
+		for immuneDiff in np.geomspace(0.25,25,3):
+			tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, growth={'cancer':1.0, 'immune':immuneGrowth}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):cancerDiff, ('healthy','immune'):immuneDiff})
+			tumor = tumorModel.Tumor(tm, L=L, verbose=True, tumorCellRatio=0.95)
+			tumorModel.plot(tumor.cellPositions, tumor.cellTypes)
+			pl.savefig(f"{outFolder}/L={L}_immuneGrowth=_{immuneGrowth:.2f}_cancerDiff=_{cancerDiff:.2f}_immuneDiff=_{immuneDiff:.2f}.png")
+			pl.close()
