@@ -74,18 +74,20 @@ cellEffR =  dict(zip(tumorModel.types, np.sqrt(cellVolumes/tumorModel.SphereVol(
 print(f"Cell effective radii by type: [h,c,i] = {cellEffR} μm")
 
 
-L=500
-cases = []
-for immuneGrowth in np.geomspace(0.01,0.1,3):
-	for cancerDiff in np.geomspace(0.1,10,3):
-		for immuneDiff in np.geomspace(0.25,25,3):
-			cases.append((L, immuneGrowth, cancerDiff, immuneDiff))
+L=5000
+immuneGrowths = np.geomspace(0.02,0.06,4)
+cancerDiffs = np.geomspace(3,30,4)
+immuneDiffs = np.geomspace(0.05,1,5)
+cases = [(L, immuneGrowth, cancerDiff, immuneDiff) for immuneGrowth in immuneGrowths for cancerDiff in cancerDiffs for immuneDiff in immuneDiffs]
+
+def getFileName(L, immuneGrowth, cancerDiff, immuneDiff):
+	return f"L={L}_immuneGrowth={immuneGrowth:.2f}_cancerDiff={cancerDiff:.2f}_immuneDiff={immuneDiff:.2f}"
 
 def testModel(params):
 	L, immuneGrowth, cancerDiff, immuneDiff = params
-	name = f"L={L}_immuneGrowth=_{immuneGrowth:.2f}_cancerDiff=_{cancerDiff:.2f}_immuneDiff=_{immuneDiff:.2f}"
+	name = getFileName(*params)
 	tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, growth={'cancer':1.0, 'immune':immuneGrowth}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):cancerDiff, ('healthy','immune'):immuneDiff})
-	tumor = tumorModel.Tumor(tm, L=L, verbose=False, tumorCellRatio=0.95)
+	tumor = tumorModel.Tumor(tm, L=L, verbose=False, tumorCellCount = np.sum(referenceTypes != 0))
 	np.savetxt(f"{outFolder}/{name}_positions.csv", tumor.cellPositions, delimiter = ', ')
 	np.savetxt(f"{outFolder}/{name}_types.csv", tumor.cellTypes)
 	tumorModel.plot(tumor.cellPositions, tumor.cellTypes)
@@ -93,6 +95,41 @@ def testModel(params):
 	pl.close()
 	print(f"{name} done!")
 
-import multiprocessing as mp
-# mp.set_start_method('spawn')
-mp.Pool().map(testModel, cases)
+if False:
+	import multiprocessing
+	# mp.set_start_method('spawn')
+	multiprocessing.Pool().map(testModel, cases[::-1])
+
+cancerDiffs = cancerDiffs[2:]
+
+res = [[[np.loadtxt(f"{outFolder}/{getFileName(L, immuneGrowth, cancerDiff, immuneDiff)}_types.csv") for immuneGrowth in immuneGrowths] for cancerDiff in cancerDiffs] for immuneDiff in immuneDiffs]
+nCellsByType = np.array([[[[np.sum(res[k][j][i] == l) for i in range(len(immuneGrowths))] for j in range(len(cancerDiffs))] for k in range(len(immuneDiffs))] for l in range(len(tumorModel.types))])
+refNCellsByType = np.array([np.sum(referenceTypes == i) for i in range(len(tumorModel.types))])
+
+# for i in range(len(tumorModel.types)):
+# 	pl.figure()
+# 	pl.title(f"Number of {tumorModel.types[i]} cells")
+# 	for j in range(len(immuneDiffs)):
+# 		for k in range(len(cancerDiffs)):
+# 			pl.plot(immuneGrowths, nCellsByType[i,j,k,:], label=f"immune cell diffusion = {immuneDiffs[j]:.2f}, cancer cell diffusion = {cancerDiffs[k]:.2f}")
+# 	pl.plot(immuneGrowths, np.ones(immuneGrowths.shape)*refNCellsByType[i], label=f"Reference image", color = 'black', linestyle='--')
+# 	pl.ylabel('count')
+# 	pl.xlabel('immune cell growth speed')
+# 	pl.legend(loc="upper right")
+
+pl.figure()
+pl.title(f"Ratio of immune to cancer cells")
+for j in range(len(immuneDiffs)):
+	for k in range(len(cancerDiffs)):
+		pl.plot(immuneGrowths, nCellsByType[2,j,k,:]/nCellsByType[1,j,k,:], label=f"immune cell diffusion = {immuneDiffs[j]:.2f}, cancer cell diffusion = {cancerDiffs[k]:.2f}")
+pl.plot(immuneGrowths, np.ones(immuneGrowths.shape)*refNCellsByType[2]/refNCellsByType[1], label=f"Reference image", color = 'black', linestyle='--')
+pl.ylabel('ratio')
+pl.xlabel('immune cell growth speed')
+pl.legend(loc="upper right")
+
+pl.show()
+# resFiles = os.listdir(outFolder)
+
+# for f in resFiles:
+# 	if f.endswith("_types.csv"):
+# 		np.savetxt(f"{outFolder}/{name}_types.csv", tumor.cellTypes)

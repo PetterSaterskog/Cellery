@@ -20,7 +20,7 @@ class TumorModel():
 			self.diffusionMat[types.index(p[1]), types.index(p[0])] = diffusion[p]
 
 class Tumor():
-	def __init__(self, tumorModel, d=2, L=2000, tumorCellRatio=0.5, verbose=False):
+	def __init__(self, tumorModel, d=2, L=2000, tumorCellCount=100, verbose=False):
 		self.L = L
 		effVol = (SphereVol(d)*tumorModel.cellEffRadVec**d).dot( [1-tumorModel.immuneFraction, 0, tumorModel.immuneFraction] ) #fraction weighted average volume per cell
 		nCells = int(L**d / effVol)
@@ -34,7 +34,7 @@ class Tumor():
 		
 		tumorCells = 1
 		dt = 0.2 / max(np.max(list(tumorModel.growth.values())), np.max(tumorModel.diffusionMat)) #ensure the most common event only happens every 5 steps for small dt convergence
-		while tumorCells < nCells*tumorCellRatio:
+		while tumorCells < tumorCellCount:
 			tumorCells += self.update(tumorModel, dt)
 			if verbose:
 				print(f"{tumorCells} tumor cells: {100*np.log(tumorCells)/np.log(nCells*tumorCellRatio):.1f}%")
@@ -84,7 +84,7 @@ def plot(cellPositions, cellTypes):
 	pl.xlabel("x [μm]")
 	pl.ylabel("y [μm]")
 	pl.axis('square')
-	pl.legend()
+	pl.legend(loc="upper right")
 	
 if __name__ == "__main__":
 	tm = TumorModel(immuneFraction=0.03, growth={'cancer':0.3, 'immune':0.1}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):0.4, ('healthy','immune'):1.5})
