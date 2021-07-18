@@ -98,7 +98,7 @@ def testModel(params):
 if False:
 	import multiprocessing
 	# mp.set_start_method('spawn')
-	multiprocessing.Pool().map(testModel, cases[::-1])
+	multiprocessing.Pool().map(testModel, cases)
 
 cancerDiffs = cancerDiffs[2:]
 
