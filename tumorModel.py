@@ -36,7 +36,7 @@ class Tumor():
 		self.cellPositions[nImmuneCells] = L/2
 		self.cellTypes[nImmuneCells] = 1
 
-		res = 20
+		res = 10
 		gridN = int(L/res)
 		gridDx = L/gridN
 		kernelXs = np.linspace(-gridN*gridDx, gridN*gridDx, 2*gridN+1)
@@ -155,9 +155,9 @@ def plot(cellPositions, cellTypes):
 	return fig, sc
 	
 if __name__ == "__main__":
-	tm = TumorModel(immuneFraction=0.03, growth={'cancer':0.3, 'immune':0*0.1}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):0.4, ('healthy','immune'):1.5})
-	tm.moveSpeed = 2.1
-	tumor = Tumor(tm, verbose=True, saveEvolution=True, L=4000,tumorCellCount=3000, maxSteps=600)
+	tm = TumorModel(immuneFraction=0.03, growth={'cancer':0.3, 'immune':0*0.1}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):2.4, ('healthy','immune'):1.5})
+	tm.moveSpeed = 4.0
+	tumor = Tumor(tm, verbose=True, saveEvolution=True, L=4000, tumorCellCount=20000, maxSteps=600)
 	
 	fig, sc = plot(tumor.cellPositions, tumor.cellTypes)
 
