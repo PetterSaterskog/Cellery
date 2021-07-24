@@ -25,6 +25,7 @@
 import numpy as np
 import matplotlib.pyplot as pl
 import os
+import pickle
 from shapely.geometry import Polygon, Point
 
 import tumorModel
@@ -70,41 +71,36 @@ immuneFraction = regionCounts['healthy'][2] / np.sum(regionCounts['healthy'])
 print(f"Measured immune fraction in healthy tissue: {100*immuneFraction:.1f}%")
 
 cellVolumes = np.linalg.solve(np.array([regionCounts[r] for r in regions]), [regions[r].area for r in regions])
-cellEffR =  dict(zip(tumorModel.types, np.sqrt(cellVolumes/tumorModel.SphereVol(2))))
+cellEffR =  dict(zip(tumorModel.types, np.sqrt(cellVolumes/tumorModel.sphereVol(2))))
 print(f"Cell effective radii by type: [h,c,i] = {cellEffR} μm")
 
 
-L=5000
-immuneGrowths = np.geomspace(0.02,0.06,4)
-cancerDiffs = np.geomspace(3,30,4)
-immuneDiffs = np.geomspace(0.05,1,5)
-cases = [(L, immuneGrowth, cancerDiff, immuneDiff) for immuneGrowth in immuneGrowths for cancerDiff in cancerDiffs for immuneDiff in immuneDiffs]
+refNCellsByType = np.array([np.sum(referenceTypes == i) for i in range(len(tumorModel.types))])
 
-def getFileName(L, immuneGrowth, cancerDiff, immuneDiff):
-	return f"L={L}_immuneGrowth={immuneGrowth:.2f}_cancerDiff={cancerDiff:.2f}_immuneDiff={immuneDiff:.2f}"
+L=6000
+d=2
+immuneGrowths = np.geomspace(0.005,0.03,3)
+cancerDiffs = np.geomspace(3,30,2)
+immuneDiffs = np.geomspace(0.05,1,2)
+moveSpeeds = np.geomspace(0.1, 50.,4)
+cases = [(L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed) for immuneGrowth in immuneGrowths for cancerDiff in cancerDiffs for immuneDiff in immuneDiffs for moveSpeed in moveSpeeds]
 
-def testModel(params):
-	L, immuneGrowth, cancerDiff, immuneDiff = params
-	name = getFileName(*params)
-	tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, growth={'cancer':1.0, 'immune':immuneGrowth}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):cancerDiff, ('healthy','immune'):immuneDiff})
-	tumor = tumorModel.Tumor(tm, L=L, verbose=False, tumorCellCount = np.sum(referenceTypes != 0))
-	np.savetxt(f"{outFolder}/{name}_positions.csv", tumor.cellPositions, delimiter = ', ')
-	np.savetxt(f"{outFolder}/{name}_types.csv", tumor.cellTypes)
-	tumorModel.plot(tumor.cellPositions, tumor.cellTypes)
-	pl.savefig(f"{outFolder}/{name}.png")
-	pl.close()
-	print(f"{name} done!")
+import subprocess
 
-if False:
-	import multiprocessing
-	# mp.set_start_method('spawn')
-	multiprocessing.Pool().map(testModel, cases)
 
-cancerDiffs = cancerDiffs[2:]
+Path("tumorModels").mkdir(parents=True, exist_ok=True)
+processes = []
+for i in range(len(cases)):
+	fn = f"tumorModels/{i}.pickle"
+	pickle.dump( cases[i], open( fn, "wb" ) )
+	processes.append(subprocess.Popen(["python3", "testTumorModel.py", fn]))
+
+for p in processes:
+	p.wait()
+exit(0)
 
 res = [[[np.loadtxt(f"{outFolder}/{getFileName(L, immuneGrowth, cancerDiff, immuneDiff)}_types.csv") for immuneGrowth in immuneGrowths] for cancerDiff in cancerDiffs] for immuneDiff in immuneDiffs]
 nCellsByType = np.array([[[[np.sum(res[k][j][i] == l) for i in range(len(immuneGrowths))] for j in range(len(cancerDiffs))] for k in range(len(immuneDiffs))] for l in range(len(tumorModel.types))])
-refNCellsByType = np.array([np.sum(referenceTypes == i) for i in range(len(tumorModel.types))])
 
 # for i in range(len(tumorModel.types)):
 # 	pl.figure()
