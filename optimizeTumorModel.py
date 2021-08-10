@@ -18,7 +18,7 @@
 # island shapes, are tumor or immune cells the islands? Are they jagged or round?
 #
 # We need to fit three indep parameters, immune cell "growth" (recruitment) speed, cancer-healthy diffusion, immune-healthy diffussion.
-# We have set the immune-cancer diffusion to 0 by hand since the immune-cancer border is practically of 0 width in the center, and we assume all cells of a certain type obey the same rules at all times.
+# We have set the immune-cancer diffusion to 0 by hand since the immune-cancer border is practically of 0 s in the center, and we assume all cells of a certain type obey the same rules at all times.
 #
 # This is doubly overdetermined with 3 parameters, and ~6 observables. A successful fit thus indicates that our model is an effective description of the tumor dynamics.
 
@@ -35,6 +35,10 @@ outFolder = f"out/optimizeTumorModel"
 from pathlib import Path
 Path(outFolder).mkdir(parents=True, exist_ok=True)
 
+thickness = 15
+d=3
+
+
 referencePositions =  spencer.loadMarkers("slide_1_measurements.csv")[0]
 referenceTypes = np.loadtxt(f"{spencer.inputDir}/slide_1_measurementstypes_8types.csv")
 refTypeIds = [0, 7, 3]
@@ -42,7 +46,7 @@ rowFilter = np.isin(referenceTypes, refTypeIds)
 print(f"Kept {100*np.sum(rowFilter)/rowFilter.shape[0]:.1f}% of reference image cells")
 referencePositions = referencePositions[rowFilter, :]
 referenceTypes = np.array([refTypeIds.index(t) for t in referenceTypes[rowFilter]])
-tumorModel.plot(referencePositions, referenceTypes)
+
 
 #https://apps.automeris.io/wpd/
 regionDir = f"{spencer.inputDir}/regions/slide1/"
@@ -51,8 +55,7 @@ for fn in os.listdir(regionDir):
 	ext = np.loadtxt(regionDir + fn, delimiter = ",")
 	pl.plot(ext[:,0], ext[:,1], label=fn[:-4], color=(1,0,1))
 	regions[fn[:-4]] = Polygon(ext)
-pl.savefig(f"{outFolder}/reference.png")
-pl.close()
+
 
 regions['healthy'] = regions['healthy1'].union(regions['healthy2'])
 del regions['healthy1']
@@ -70,27 +73,37 @@ for r in regions:
 immuneFraction = regionCounts['healthy'][2] / np.sum(regionCounts['healthy'])
 print(f"Measured immune fraction in healthy tissue: {100*immuneFraction:.1f}%")
 
-cellVolumes = np.linalg.solve(np.array([regionCounts[r] for r in regions]), [regions[r].area for r in regions])
-cellEffR =  dict(zip(tumorModel.types, np.sqrt(cellVolumes/tumorModel.sphereVol(2))))
-print(f"Cell effective radii by type: [h,c,i] = {cellEffR} μm")
+cellVolumes = np.linalg.solve(np.array([regionCounts[r] for r in regions]), [regions[r].area*(1 if d==2 else thickness) for r in regions])
 
+cellEffR =  dict(zip(tumorModel.types, (cellVolumes/tumorModel.sphereVol(d))**(1/d)))
+print(f"Cell effective radii by type: [h,c,i] = {cellEffR} μm")
+tumorModel.plot(referencePositions, referenceTypes, cellEffR)
+pl.savefig(f"{outFolder}/reference.png")
+pl.close()
 
 refNCellsByType = np.array([np.sum(referenceTypes == i) for i in range(len(tumorModel.types))])
 
-L=6000
-d=2
-immuneGrowths = np.geomspace(0.005,0.03,3)
-cancerDiffs = np.geomspace(3,30,2)
-immuneDiffs = np.geomspace(0.05,1,2)
-moveSpeeds = np.geomspace(0.1, 50.,4)
+L=3000
+
+immuneGrowths = [0.0, 0.05, 0.1] #np.geomspace(0.005,0.02,3)[1:2]
+cancerDiffs = [0.0, 1.0, 2.0] #np.geomspace(3,20,2)[:1]
+immuneDiffs = [0.0, 1.0, 2.0] #np.geomspace(0.1,10,2)[:1]
+moveSpeeds = [0.0, 1.0, 4.0]#np.geomspace(0.1, 50.,3)[1:2]
+
 cases = [(L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed) for immuneGrowth in immuneGrowths for cancerDiff in cancerDiffs for immuneDiff in immuneDiffs for moveSpeed in moveSpeeds]
 
+maxProcesses = 1
+
 import subprocess
-
-
 Path("tumorModels").mkdir(parents=True, exist_ok=True)
 processes = []
 for i in range(len(cases)):
+	print('processes:', len(processes), processes)
+	if len(processes)>=maxProcesses:
+		processes[0].wait()
+		processes.pop(0)
+	
+	print(f'Starting run {i}')
 	fn = f"tumorModels/{i}.pickle"
 	pickle.dump( cases[i], open( fn, "wb" ) )
 	processes.append(subprocess.Popen(["python3", "testTumorModel.py", fn]))

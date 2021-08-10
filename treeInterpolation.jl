@@ -1,4 +1,13 @@
-class TreeInterpolation():
+module TumorModelling
+	export TreeInterpolation
+
+	struct Tree{D::Val{N}}
+		::Array{Tree, D}
+
+	end
+	
+
+	class TreeInterpolation():
 	def __init__(self, xMin, xMax, minSize):
 		self.xMin, self.xMax = np.array(xMin), np.array(xMax)
 		self.center = (self.xMin+self.xMax)/2
