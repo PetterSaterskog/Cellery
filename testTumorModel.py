@@ -6,22 +6,25 @@ import matplotlib.pyplot as pl
 import tumorModel
 
 assert(len(sys.argv)==2)
-L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed  = params = pickle.load( open( sys.argv[1], "rb" ) )
+L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed, cytotoxicity, thickness, neighborDist  = params = pickle.load( open( sys.argv[1], "rb" ) )
 
-thickness = 15
-
-def getFileName(L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed):
-	return f"L={L}_d={d}_immuneGrowth={immuneGrowth:.2f}_cancerDiff={cancerDiff:.2f}_immuneDiff={immuneDiff:.2f}_moveSpeed={moveSpeed:.2f}"
+def getFileName(L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed, cytotoxicity, thickness, neighborDist):
+	return f"L={L}_d={d}_immuneGrowth={immuneGrowth}_cancerDiff={cancerDiff}_immuneDiff={immuneDiff:.2f}_moveSpeed={moveSpeed:.2f}_cytotoxicity={cytotoxicity:.2f}_thicknesss={thickness:.2f}_neighborDist={neighborDist:.1f}"
 
 outFolder = f"out/optimizeTumorModel"
 from pathlib import Path
 Path(outFolder).mkdir(parents=True, exist_ok=True)
 
-tumorSize = (refNCellsByType[1]+refNCellsByType[2])*L/thickness*0.2
+if d==2:
+	tumorSize = (refNCellsByType[1]+refNCellsByType[2])*0.5
+if d==3:
+	tumorSize = (refNCellsByType[1]+refNCellsByType[2])*L/thickness*0.7#*0.05
 
 name = getFileName(*params)
-tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, moveSpeed=moveSpeed, growth={'cancer':1.0, 'immune':immuneGrowth}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):cancerDiff, ('healthy','immune'):immuneDiff})
-tumor = tumorModel.Tumor(tm, L=L, d=d, tumorCellCount = tumorSize, maxSteps = 1000, verbose=True, width=thickness, saveEvolution=True)
+print(f"Testing: {name}")
+
+tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, moveSpeed=moveSpeed, cytotoxicity=cytotoxicity, neighborDist=neighborDist, growth={'cancer':1.0, 'immune':immuneGrowth}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):cancerDiff, ('healthy','immune'):immuneDiff})
+tumor = tumorModel.Tumor(tm, L=L, d=d, tumorCellCount = tumorSize, maxSteps = 10000, verbose=True, width=thickness, saveEvolution=True)
 np.savetxt(f"{outFolder}/{name}_positions.csv", tumor.cellPositions, delimiter = ', ')
 np.savetxt(f"{outFolder}/{name}_types.csv", tumor.cellTypes)
 fig, sc = tumorModel.plot(tumor.cellPositions, tumor.cellTypes, tm.cellEffR, L=L, width=thickness)
@@ -41,20 +44,20 @@ anim = animation.FuncAnimation(fig, updateFig, frames=len(tumor.evolution)//fram
 writervideo = animation.FFMpegWriter(fps=30) 
 anim.save(f"{outFolder}/{name}.avi", writer=writervideo)
 
-if d==2:
-	pl.figure(figsize=(10,10))
-	pl.imshow(tumor.infection.T, origin='lower')
-	pl.savefig(f"{outFolder}/{name}_infection.png")
-	pl.close()
+# if d==2:
+# 	pl.figure(figsize=(10,10))
+# 	pl.imshow(tumor.infection.T, origin='lower')
+# 	pl.savefig(f"{outFolder}/{name}_infection.png")
+# 	pl.close()
 
-	pl.figure(figsize=(10,10))
-	pl.imshow(tumor.exclusion.T, origin='lower')
-	pl.savefig(f"{outFolder}/{name}_exclusion.png")
-	pl.close()
+# 	pl.figure(figsize=(10,10))
+# 	pl.imshow(tumor.exclusion.T, origin='lower')
+# 	pl.savefig(f"{outFolder}/{name}_exclusion.png")
+# 	pl.close()
 
-	pl.figure(figsize=(10,10))
-	pl.imshow(tumor.exclusion.T<0.5, origin='lower')
-	pl.savefig(f"{outFolder}/{name}_exclusion_bin.png")
-	pl.close()
+# 	pl.figure(figsize=(10,10))
+# 	pl.imshow(tumor.exclusion.T<0.5, origin='lower')
+# 	pl.savefig(f"{outFolder}/{name}_exclusion_bin.png")
+# 	pl.close()
 
 print(f"{name} done!")

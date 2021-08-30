@@ -35,9 +35,10 @@ outFolder = f"out/optimizeTumorModel"
 from pathlib import Path
 Path(outFolder).mkdir(parents=True, exist_ok=True)
 
+# thickness = 15
+# thickness = 25
 thickness = 15
 d=3
-
 
 referencePositions =  spencer.loadMarkers("slide_1_measurements.csv")[0]
 referenceTypes = np.loadtxt(f"{spencer.inputDir}/slide_1_measurementstypes_8types.csv")
@@ -47,7 +48,6 @@ print(f"Kept {100*np.sum(rowFilter)/rowFilter.shape[0]:.1f}% of reference image 
 referencePositions = referencePositions[rowFilter, :]
 referenceTypes = np.array([refTypeIds.index(t) for t in referenceTypes[rowFilter]])
 
-
 #https://apps.automeris.io/wpd/
 regionDir = f"{spencer.inputDir}/regions/slide1/"
 regions = {}
@@ -55,7 +55,6 @@ for fn in os.listdir(regionDir):
 	ext = np.loadtxt(regionDir + fn, delimiter = ",")
 	pl.plot(ext[:,0], ext[:,1], label=fn[:-4], color=(1,0,1))
 	regions[fn[:-4]] = Polygon(ext)
-
 
 regions['healthy'] = regions['healthy1'].union(regions['healthy2'])
 del regions['healthy1']
@@ -83,28 +82,64 @@ pl.close()
 
 refNCellsByType = np.array([np.sum(referenceTypes == i) for i in range(len(tumorModel.types))])
 
-L=3000
-
+L = 3000
 immuneGrowths = [0.0, 0.05, 0.1] #np.geomspace(0.005,0.02,3)[1:2]
 cancerDiffs = [0.0, 1.0, 2.0] #np.geomspace(3,20,2)[:1]
 immuneDiffs = [0.0, 1.0, 2.0] #np.geomspace(0.1,10,2)[:1]
 moveSpeeds = [0.0, 1.0, 4.0]#np.geomspace(0.1, 50.,3)[1:2]
 
-cases = [(L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed) for immuneGrowth in immuneGrowths for cancerDiff in cancerDiffs for immuneDiff in immuneDiffs for moveSpeed in moveSpeeds]
+L = 5000
+immuneGrowths = [0.025, 0.03, 0.04, 0.05] #np.geomspace(0.005,0.02,3)[1:2]
+cancerDiffs = [3.0,5.0, 10.] #np.geomspace(3,20,2)[:1]
+immuneDiffs = [0.0] #np.geomspace(0.1,10,2)[:1]
+moveSpeeds = [0.0]#np.geomspace(0.1, 50.,3)[1:2]
+cyctotoxicities = [0.3, 0.5, 0.7]
 
-maxProcesses = 1
+L = 4000
+# thickness = 25
+immuneGrowths = [0.035, 0.040, 0.045]
+cancerDiffs = [2.5, 5.0] #np.geomspace(3,20,2)[:1]
+immuneDiffs = [0.0] #np.geomspace(0.1,10,2)[:1]
+moveSpeeds = [0.0]#np.geomspace(0.1, 50.,3)[1:2]
+cyctotoxicities = [0.1, 0.3, 0.6, 1.0]
+
+L = 4000
+# thickness = 15
+immuneGrowths = [0.026]
+#neighborDist = 25
+cancerDiffs = [5.0] #np.geomspace(3,20,2)[:1]
+immuneDiffs = [0.0] #np.geomspace(0.1,10,2)[:1]
+moveSpeeds = [0.0]#np.geomspace(0.1, 50.,3)[1:2]
+cyctotoxicities = [0.1,0.2,0.5]
+
+L = 4000
+# thickness = 15
+immuneGrowths = [0.15, 0.2, 0.25]
+neighborDist = 15
+cancerDiffs = [25., 50.0] #np.geomspace(3,20,2)[:1]
+immuneDiffs = [0.0] #np.geomspace(0.1,10,2)[:1]
+moveSpeeds = [0.0]#np.geomspace(0.1, 50.,3)[1:2]
+cyctotoxicities = [1.0]
+
+cases = [(L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed, cytotoxicity, thickness, neighborDist) for immuneGrowth in immuneGrowths for cancerDiff in cancerDiffs for immuneDiff in immuneDiffs for moveSpeed in moveSpeeds for cytotoxicity in cyctotoxicities]
+
+np.random.shuffle(cases)
+
+maxProcesses = 9
+
+expName = '6'
 
 import subprocess
 Path("tumorModels").mkdir(parents=True, exist_ok=True)
 processes = []
 for i in range(len(cases)):
-	print('processes:', len(processes), processes)
+	# print('processes:', len(processes), processes)
 	if len(processes)>=maxProcesses:
 		processes[0].wait()
 		processes.pop(0)
 	
 	print(f'Starting run {i}')
-	fn = f"tumorModels/{i}.pickle"
+	fn = f"tumorModels/{expName}_{i}.pickle"
 	pickle.dump( cases[i], open( fn, "wb" ) )
 	processes.append(subprocess.Popen(["python3", "testTumorModel.py", fn]))
 

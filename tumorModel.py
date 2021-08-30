@@ -19,7 +19,7 @@ def sphereVol(d):
 	return np.pi**(d/2)/gamma(d/2 + 1)
 
 class TumorModel():
-	def __init__(self, cellEffR={t:10 for t in types}, immuneFraction=0, moveSpeed=0, neighborDist=25, growth={'cancer':1.,'immune':0.}, diffusion={}, infectionRange=200.):
+	def __init__(self, cellEffR={t:10 for t in types}, immuneFraction=0, moveSpeed=0, cytotoxicity=0.0, neighborDist=25, growth={'cancer':1.,'immune':0.}, diffusion={}, infectionRange=200.):
 		self.cellEffR = cellEffR
 		self.cellEffRadVec = np.array([cellEffR[t] for t in types]).astype(np.float32)
 		self.immuneFraction = immuneFraction
@@ -27,6 +27,7 @@ class TumorModel():
 		self.neighborDist = neighborDist
 		self.diffusionMat = np.zeros([len(types)]*2)
 		self.moveSpeed = moveSpeed
+		self.cytotoxicity = cytotoxicity
 		for p in diffusion:
 			self.diffusionMat[types.index(p[0]), types.index(p[1])] = diffusion[p]
 			self.diffusionMat[types.index(p[1]), types.index(p[0])] = diffusion[p]
@@ -63,20 +64,20 @@ class Tumor():
 		self.gridN = int(L/res + 0.5)
 		self.fftSize = fftpack.next_fast_len(2*self.gridN - 1)
 		gridDx = L/self.gridN
-		kernelXs = np.linspace(-self.gridN*gridDx, self.gridN*gridDx, 2*self.gridN+1)
+		kernelXs = np.linspace(-(self.gridN-1)*gridDx, (self.gridN-1)*gridDx, 2*self.gridN-1)
 		self.gridEdges = np.linspace(0, L, self.gridN+1)
 		self.gridCenters = (self.gridEdges[:-1] + self.gridEdges[1:])/2
 		
 		kernelCoords = np.moveaxis(np.meshgrid(*d*[kernelXs], indexing='ij'), 0, d)
 		kernelRs = np.linalg.norm(kernelCoords, axis=d)
 		kernelRsReg = np.array(kernelRs)
-		middle = d*[self.gridN]
+		middle = d*[self.gridN-1]
 		kernelRsReg[tuple(middle)] = 1 #need to treat center specially
 		
 		self.infectionKernel = k0(kernelRsReg/tumorModel.infectionRange).astype(self.dtype)
 		self.infectionGradientKernel = (-(k1(kernelRsReg/tumorModel.infectionRange)/(kernelRsReg*tumorModel.infectionRange))[newaxis,...] * np.moveaxis(kernelCoords,d,0)).astype(self.dtype)
 
-		self.infectionKernel[tuple(middle)] = self.infectionKernel[tuple([self.gridN + 1]+middle[1:])].astype(self.dtype)
+		self.infectionKernel[tuple(middle)] = self.infectionKernel[tuple([self.gridN]+middle[1:])].astype(self.dtype)
 		self.infectionGradientKernel[:, tuple(middle)] = 0
 
 		
@@ -86,18 +87,20 @@ class Tumor():
 
 		maxR = np.max(tumorModel.cellEffRadVec)
 		self.displacementKernel = (kernelCoords*(((1 + (1 - np.exp(-(kernelRs/maxR)**d))*(maxR / kernelRsReg)**d )**(1/d) - 1)/(maxR**d*sphereVol(d)))[..., newaxis]).astype(self.dtype)
+
 		#TODO finite diff check
 
 		with fft.set_workers(-1):
 			#precompute FFTs of kernels for faster convolutions
-			self.infectionKernelFFT = self.FFT(self.infectionKernel)
-			self.infectionGradientKernelFFT = self.FFT(self.infectionGradientKernel)
-			self.exclusionKernelFFT = self.FFT(self.exclusionKernel)
-			self.exclusionGradientKernellFFT = self.FFT(np.moveaxis(self.exclusionGradientKernel,d,0))
+			if tumorModel.moveSpeed:
+				self.infectionKernelFFT = self.FFT(self.infectionKernel)
+				self.infectionGradientKernelFFT = self.FFT(self.infectionGradientKernel)
+				self.exclusionKernelFFT = self.FFT(self.exclusionKernel)
+				self.exclusionGradientKernellFFT = self.FFT(np.moveaxis(self.exclusionGradientKernel,d,0))
 			self.displacementKernelFFT = self.FFT(np.moveaxis(self.displacementKernel,d,0))
 		
 		tumorCells = 1
-		dt = 0.1 / max(np.max(list(tumorModel.growth.values())), np.max(tumorModel.diffusionMat), tumorModel.moveSpeed) #ensure the most common event only happens every 5 steps for small dt convergence
+		dt = 0.2 / max(np.max(list(tumorModel.growth.values())), np.max(tumorModel.diffusionMat), tumorModel.moveSpeed) #ensure the most common event only happens every 5 steps for small dt convergence
 		
 		if saveEvolution:
 			self.evolution = []
@@ -114,6 +117,24 @@ class Tumor():
 			tumorCells += self.update(tumorModel, dt, verbose)
 			i+=1
 
+# 33699578 tumor cells: 99.9%
+# 7879667 immune cells
+# Make tree: 38.672526597976685 s
+# Find pairs: 116.22024607658386 s
+# Counting cancer cells: 5.646864891052246 s
+# Diffuse: 121.81452488899231 s
+# Set boundary condition: 0.6678287982940674 s
+# Measure neighbor distances: 97.12076663970947 s
+# Calculate neighbor displacements: 35.956838607788086 s
+# Add neighbor displacements: 63.323172092437744 s
+# 7848221 cancer cells cannot split
+# Finding to split: 80.93684267997742 s
+# Calculating expansionSources: 0.3249225616455078 s
+# Calculating displacements: 2.28892183303833 s
+# Displacing cells: 15.540356397628784 s
+# Adding cells: 0.3608520030975342 s
+# Removing cells: 1.3589246273040771 s
+
 
 	def update(self, tumorModel, dt, profile=False, nThreads=-1):
 
@@ -128,13 +149,14 @@ class Tumor():
 		cancerCounts = np.histogramdd(self.cellPositions[self.cellTypes==1], bins = self.d*[self.gridEdges])[0].astype(self.dtype)
 		if profile: print(f"Counting cancer cells: {time.time() - start} s")
 
-		if profile: start = time.time()
-		with fft.set_workers(nThreads):
-			cancerCountsFFT = self.FFT(cancerCounts)
-			self.infection = self.convolve(cancerCountsFFT, self.infectionKernelFFT)
-			self.infectionGradient = self.convolve(cancerCountsFFT, self.infectionGradientKernelFFT)
-			self.exclusion = self.convolve(cancerCountsFFT,  self.exclusionKernelFFT)
-		if profile: print(f"Calculating infection and exclusion fields: {time.time() - start} s")
+		if tumorModel.moveSpeed>0:
+			if profile: start = time.time()
+			with fft.set_workers(nThreads):
+				cancerCountsFFT = self.FFT(cancerCounts)
+				self.infection = self.convolve(cancerCountsFFT, self.infectionKernelFFT)
+				self.infectionGradient = self.convolve(cancerCountsFFT, self.infectionGradientKernelFFT)
+				self.exclusion = self.convolve(cancerCountsFFT,  self.exclusionKernelFFT)
+			if profile: print(f"Calculating infection and exclusion fields: {time.time() - start} s")
 
 		if profile: start = time.time()
 		for i in range(len(types)):
@@ -155,14 +177,19 @@ class Tumor():
 		if profile: print(f"Set boundary condition: {time.time() - start} s")
 
 		if profile: start = time.time()
-		rad = 10
+		
 		diff = self.cellPositions[pairs[:,1]]-self.cellPositions[pairs[:,0]]
+		radSum = tumorModel.cellEffRadVec[self.cellTypes[pairs[:,0]]] + tumorModel.cellEffRadVec[self.cellTypes[pairs[:,1]]]
 		diff2 = np.sum(diff*diff, axis=1)
 		if profile: print(f"Measure neighbor distances: {time.time() - start} s")
-
+		
+		rad = 10
 		if profile: start = time.time()
-		w = 5*np.exp(-diff2/rad**2)/rad**2
-		f = 10*diff*w[:, newaxis]/np.sqrt(diff2)[:, newaxis]
+		# w = 10*np.exp(-diff2/rad**2)/rad**(self.d/2)
+		# f = diff*w[:, newaxis]/np.sqrt(diff2)[:, newaxis] #10
+		eps = 1e-6
+		maxStepSize = 0.5 #2 um per step. This is set by the overall scale, too small is slow, too large might be unstable. No dt
+		f = maxStepSize * diff * np.exp(-diff2/radSum**2)[:, newaxis] / np.sqrt(eps + diff2)[:, newaxis]
 		if profile: print(f"Calculate neighbor displacements: {time.time() - start} s")
 
 		if profile: start = time.time()
@@ -174,18 +201,28 @@ class Tumor():
 		if profile: print(f"Add neighbor displacements: {time.time() - start} s")
 
 		if profile: start = time.time()
-		ccs = np.arange(len(self.cellPositions))[self.cellTypes==1]
-		ics = np.concatenate( (pairs[(self.cellTypes[pairs[:,0]]==2) & (self.cellTypes[pairs[:,1]]==1), 0],
+		cancerCells = np.arange(len(self.cellPositions))[(self.cellTypes==1)]
+		immuneCellsNearCancer = np.concatenate( (pairs[(self.cellTypes[pairs[:,0]]==2) & (self.cellTypes[pairs[:,1]]==1), 0],
 							   pairs[(self.cellTypes[pairs[:,1]]==2) & (self.cellTypes[pairs[:,0]]==1), 1]) )
+		cancerCellsNearImmune = np.concatenate( (pairs[(self.cellTypes[pairs[:,0]]==2) & (self.cellTypes[pairs[:,1]]==1), 1],
+							   pairs[(self.cellTypes[pairs[:,1]]==2) & (self.cellTypes[pairs[:,0]]==1), 0]) )
+		
+		if tumorModel.cytotoxicity>0:
+			splittableCancerCells = np.setdiff1d(cancerCells, cancerCellsNearImmune[np.random.rand(cancerCellsNearImmune.shape[0]) < tumorModel.cytotoxicity])
+			print(f'{len(cancerCells) - len(splittableCancerCells)} cancer cells cannot split')
+		else:
+			splittableCancerCells = cancerCells
 
-		toSplit = np.concatenate( (ccs[np.random.rand(ccs.shape[0]) < dt*tumorModel.growth['cancer']], ics[np.random.rand(ics.shape[0]) < dt*tumorModel.growth['immune']] ))
+		toSplit = np.concatenate(  (splittableCancerCells[np.random.rand(splittableCancerCells.shape[0]) < dt*tumorModel.growth['cancer']],
+									immuneCellsNearCancer[np.random.rand(immuneCellsNearCancer.shape[0]) < dt*tumorModel.growth['immune']] ))
 		if profile: print(f"Finding to split: {time.time() - start} s")
 
 		if profile: start = time.time()
-		expansionSources = np.histogramdd(self.cellPositions[toSplit], bins = self.d*[self.gridEdges], weights = sphereVol(self.d)*tumorModel.cellEffRadVec[self.cellTypes[toSplit]]**self.d, normed = False)[0].astype(self.dtype)
+		expansionSources = np.histogramdd(self.cellPositions[toSplit], bins = self.d*[self.gridEdges], weights = sphereVol(self.d)*tumorModel.cellEffRadVec[self.cellTypes[toSplit]]**self.d,
+			normed = False)[0].astype(self.dtype)
 		if profile: print(f"Calculating expansionSources: {time.time() - start} s")
 		
-		if True:
+		if tumorModel.moveSpeed>0:
 			if profile: start = time.time()
 			toMove = np.arange(len(self.cellPositions))[self.cellTypes==2]
 			toMove = toMove[np.random.rand(toMove.shape[0]) < dt*tumorModel.moveSpeed]
@@ -199,6 +236,8 @@ class Tumor():
 			self.cellPositions[toMove[exclusionLevels < exclusionThreshold]] += moveVecs[exclusionLevels < exclusionThreshold]
 			expansionSources += np.histogramdd(self.cellPositions[toMove], bins = self.d*[self.gridEdges], weights = sphereVol(self.d)*tumorModel.cellEffRadVec[self.cellTypes[toMove]]**self.d, normed = False)[0].astype(self.dtype)
 			if profile: print(f"Moving immune cells: {time.time() - start} s")
+		else:
+			toMove = []
 
 		if len(toMove) + len(toSplit) > 0:
 			if profile: start = time.time()
@@ -232,9 +271,10 @@ class Tumor():
 
 		return toSplit.shape[0]
 
-def plot(cellPositions, cellTypes, cellEffR, L=0, width=15):
+def plot(cellPositions, cellTypes, cellEffR, L=0, width=15, fig=None):
 	colors = {'healthy':(0,.8,0), 'cancer':(1,0,0), 'immune':(0,0,1)}
-	fig = pl.figure(figsize=(26,26))
+	if fig==None:
+		fig = pl.figure(figsize=(26,26))
 	sc=[]
 	import matplotlib
 	for i in range(len(types)):
