@@ -7,3 +7,4 @@ montecarloFigs
 images
 .DS_Store
 __pycache__
+tumor_model/target
