@@ -128,7 +128,7 @@ np.random.shuffle(cases)
 maxProcesses = 9
 
 expName = '6'
-exit(0)
+
 import subprocess
 Path("tumorModels").mkdir(parents=True, exist_ok=True)
 processes = []
