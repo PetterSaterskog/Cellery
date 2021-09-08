@@ -22,20 +22,24 @@ struct Cell {
 	cell_type: CellType,
 }
 
+//Contains the biological parameters that set the rules for a tumor model
 struct TumorModel {
 	cell_effective_radii: [Real; 3],
 	cancer_growth: Real,
 	immune_growth: Real,
 	healthy_cancer_diffusion: Real,
 	cytotoxicity: Real,
+	neighbor_distance: Real,
 }
 
+//Holds memory needed for running tumor simulation
 struct SimulationAllocation {
 	expansion: Array3<Real>,
 	displacement: Array4<Real>,
-	displacement_kernel_hat: Array4<Real>,
+	displacement_kernel_hat: Array4<Complex<Real>>,
 }
 
+//Contains state of tumor
 struct Tumor {
 	model: TumorModel,
 	cells: Vec<Cell>,
@@ -45,15 +49,16 @@ struct Tumor {
 
 fn read_tumor_model(_fn: String) -> TumorModel{
 	TumorModel{cell_effective_radii:[10.0, 10.0, 10.0],
-		cancer_growth:1.0,
-		immune_growth:0.1,
-		healthy_cancer_diffusion:5.0,
-		cytotoxicity:0.5}
+		cancer_growth: 1.0,
+		immune_growth: 0.1,
+		healthy_cancer_diffusion: 5.0,
+		cytotoxicity: 0.5,
+		neighbor_distance: 20.,
+	}
 }
 
 fn get_initial_tumor(model: TumorModel, size: Real, immune_ratio: Real) -> Tumor {
 	let mut vec = Vec::new();
-	// let mut vec = Vec::with_capacity(200_000_000);
 	let half = size/2.0;
 	let n_healthy = 0;
 	for i in 0..n_healthy{
@@ -91,7 +96,7 @@ fn initialize_simulation(tumor: &Tumor, resolution: Real, n_threads: u32) -> Sim
 	{
 		for j in 0..kernel_xs.len()
 		{
-			let slice = kernel_coords.index_axis_mut(Axis(i), j);
+			let mut slice = kernel_coords.index_axis_mut(Axis(i), j);
 			slice.fill(kernel_xs[j]);
 		}
 	}
@@ -106,13 +111,17 @@ fn initialize_simulation(tumor: &Tumor, resolution: Real, n_threads: u32) -> Sim
 	
 	for i in 0..DIM
 	{
-		fft(displacement_kernel.index_axis_mut(Axis(DIM), i), displacement_kernel_hat.index_axis_mut(Axis(DIM), i));
+		fft(displacement_kernel.index_axis_mut(Axis(DIM), i).to_owned(), displacement_kernel_hat.index_axis_mut(Axis(DIM), i).to_owned());
 	}
 	
+	let index_n = tumor.size / tumor.model.neighbor_distance;
+
 	SimulationAllocation {
 		expansion: Array::zeros((n, n, n)),
 		displacement: Array::zeros((n, n, n, DIM)),
 		displacement_kernel_hat: displacement_kernel_hat,
+		indexN: Array::zeros((index_n, index_n, index_n)),
+		indexN: Array::zeros((index_n, index_n, index_n)),
 	}
 }
 
@@ -167,11 +176,25 @@ fn fft(a:Array3::<Real>, a_hat:Array3::<Complex<Real>>){ //a: Array::<f32, Ix3>)
 // 	);
 // }
 
-fn update_tumor(tumor: &mut Tumor, dt: Real){
+
+fn update_tumor(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
 	//add cell ids in spatial grid
 	//create index in parallel
+	
+	all.index_n.fill(0)
 	for i in 0..tumor.cells.len(){
+		let mut corner_indices: Vec<[usize, DIM]>; 
+		let mut corner = [bool, DIM];
+		let (px, py, pz) = (tumor.cells[i].x, tumor.cells[i].y, tumor.cells[i].z)
+		for ci in 0..2{
+			let gi = (px + )
+		}
+		loop {
+			corner
+			loop{
 
+			}
+		}
 	}
 
 
@@ -200,12 +223,12 @@ fn save_tumor(tumor: &Tumor){
 }
 
 fn simulate(model:TumorModel, max_tumor_cells: usize) -> Tumor{
-	let mut tumor = get_initial_tumor(model, 100.0, 0.5);
+	let mut tumor = get_initial_tumor(model, 50.0, 0.5);
 	let resolution = 12.;
 	let n_threads = 4;
 
 	println!("Initializing simulation..");
-	let all = initialize_simulation(&tumor, resolution, n_threads);
+	let allocation = initialize_simulation(&tumor, resolution, n_threads);
 
 
 	let dt = 0.1;
@@ -215,14 +238,13 @@ fn simulate(model:TumorModel, max_tumor_cells: usize) -> Tumor{
 		if tumor.cells.len() >= max_tumor_cells{
 			break;
 		}
-		update_tumor(&mut tumor, dt);
+		update_tumor(&mut tumor,&mut  allocation, dt);
 		
 	}
 	tumor
 }
 
 fn main() {
-
 	let model = read_tumor_model(String::from("ModelFile"));
 	simulate(model, 1_000_000);
 }
