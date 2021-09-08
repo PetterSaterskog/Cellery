@@ -30,6 +30,7 @@ from shapely.geometry import Polygon, Point
 
 import tumorModel
 import spencer
+from cycler import cycler
 
 outFolder = f"out/optimizeTumorModel"
 from pathlib import Path
@@ -51,9 +52,14 @@ referenceTypes = np.array([refTypeIds.index(t) for t in referenceTypes[rowFilter
 #https://apps.automeris.io/wpd/
 regionDir = f"{spencer.inputDir}/regions/slide1/"
 regions = {}
+pl.figure(figsize=(14,14))
+custom_cycler = (cycler(color=['c', 'm', 'y', 'k']) +
+                 cycler(lw=[1, 2, 3, 4]))
+pl.gca().set_prop_cycle(custom_cycler)
 for fn in os.listdir(regionDir):
 	ext = np.loadtxt(regionDir + fn, delimiter = ",")
-	pl.plot(ext[:,0], ext[:,1], label=fn[:-4], color=(1,0,1))
+	extLoop = np.concatenate([ext[-1:,:], ext], axis=0)
+	pl.plot(extLoop[:,0], extLoop[:,1], label=fn[:-4], linewidth=4)#, color=(1,0,1))
 	regions[fn[:-4]] = Polygon(ext)
 
 regions['healthy'] = regions['healthy1'].union(regions['healthy2'])
@@ -76,9 +82,10 @@ cellVolumes = np.linalg.solve(np.array([regionCounts[r] for r in regions]), [reg
 
 cellEffR =  dict(zip(tumorModel.types, (cellVolumes/tumorModel.sphereVol(d))**(1/d)))
 print(f"Cell effective radii by type: [h,c,i] = {cellEffR} μm")
-tumorModel.plot(referencePositions, referenceTypes, cellEffR)
+tumorModel.plot(referencePositions, referenceTypes, cellEffR, fig=pl.gcf())
 pl.savefig(f"{outFolder}/reference.png")
 pl.close()
+exit(0)
 
 refNCellsByType = np.array([np.sum(referenceTypes == i) for i in range(len(tumorModel.types))])
 
@@ -121,13 +128,22 @@ immuneDiffs = [0.0] #np.geomspace(0.1,10,2)[:1]
 moveSpeeds = [0.0]#np.geomspace(0.1, 50.,3)[1:2]
 cyctotoxicities = [1.0]
 
+L = 4000
+# thickness = 15
+immuneGrowths = [0, 0.026]
+neighborDist = 25
+cancerDiffs = [0, 5.0] #np.geomspace(3,20,2)[:1]
+immuneDiffs = [0.0] #np.geomspace(0.1,10,2)[:1]
+moveSpeeds = [0.0]#np.geomspace(0.1, 50.,3)[1:2]
+cyctotoxicities = [0.0,0.2,0.5, 1.0]
+
 cases = [(L, d, cellEffR, immuneFraction, refNCellsByType, immuneGrowth, cancerDiff, immuneDiff, moveSpeed, cytotoxicity, thickness, neighborDist) for immuneGrowth in immuneGrowths for cancerDiff in cancerDiffs for immuneDiff in immuneDiffs for moveSpeed in moveSpeeds for cytotoxicity in cyctotoxicities]
 
 np.random.shuffle(cases)
 
-maxProcesses = 9
+maxProcesses = 16
 
-expName = '6'
+expName = '8'
 
 import subprocess
 Path("tumorModels").mkdir(parents=True, exist_ok=True)
