@@ -6,6 +6,7 @@ use ndrustfft::{ndfft_r2c_par, ndifft_r2c_par, Complex, R2cFftHandler};
 
 type Real = f32;
 const DIM: usize = 3; //not intended to work in other than 3 dimensions, just for code clarity
+const MAX_INDEX: usize = 256;
 
 #[derive(Clone)]
 enum CellType {
@@ -37,6 +38,8 @@ struct SimulationAllocation {
 	expansion: Array3<Real>,
 	displacement: Array4<Real>,
 	displacement_kernel_hat: Array4<Complex<Real>>,
+	index: Array4<usize>,
+	index_n: Array3<usize>,
 }
 
 //Contains state of tumor
@@ -114,14 +117,14 @@ fn initialize_simulation(tumor: &Tumor, resolution: Real, n_threads: u32) -> Sim
 		fft(displacement_kernel.index_axis_mut(Axis(DIM), i).to_owned(), displacement_kernel_hat.index_axis_mut(Axis(DIM), i).to_owned());
 	}
 	
-	let index_n = tumor.size / tumor.model.neighbor_distance;
+	let index_n = (tumor.size / tumor.model.neighbor_distance) as usize;
 
 	SimulationAllocation {
 		expansion: Array::zeros((n, n, n)),
 		displacement: Array::zeros((n, n, n, DIM)),
 		displacement_kernel_hat: displacement_kernel_hat,
-		indexN: Array::zeros((index_n, index_n, index_n)),
-		indexN: Array::zeros((index_n, index_n, index_n)),
+		index: Array::zeros((index_n, index_n, index_n, MAX_INDEX)),
+		index_n: Array::zeros((index_n, index_n, index_n)),
 	}
 }
 
@@ -176,39 +179,89 @@ fn fft(a:Array3::<Real>, a_hat:Array3::<Complex<Real>>){ //a: Array::<f32, Ix3>)
 // 	);
 // }
 
-
-fn update_tumor(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
+fn populate_index(tumor: &mut Tumor, all: &mut SimulationAllocation){
 	//add cell ids in spatial grid
 	//create index in parallel
-	
-	all.index_n.fill(0)
-	for i in 0..tumor.cells.len(){
-		let mut corner_indices: Vec<[usize, DIM]>; 
-		let mut corner = [bool, DIM];
-		let (px, py, pz) = (tumor.cells[i].x, tumor.cells[i].y, tumor.cells[i].z)
-		for ci in 0..2{
-			let gi = (px + )
-		}
-		loop {
-			corner
-			loop{
+	let dx = tumor.size / (all.expansion.shape()[0]) as Real;
+	let n = all.index_n.shape()[0] as i32;
+	let rad = tumor.model.neighbor_distance;
+	all.index_n.fill(0);
+	let mut overflows = 0 as usize;
 
+	for i in 0..tumor.cells.len(){
+		let mut corner_indices: Vec<[usize; DIM]>; 
+		// let mut corner = [bool; DIM];
+		let (px, py, pz) = (tumor.cells[i].x, tumor.cells[i].y, tumor.cells[i].z);
+		let mut prev_xj = -1 as i32;
+		for xi in 0..2{
+			let xj = ((px + rad*(2*xi-1) as Real)/dx) as i32;
+			if xj<0 || xj >= n {continue;}
+			if prev_xj != xj {
+				prev_xj = xj;
+				let mut prev_yj = -1 as i32;
+				for yi in 0..2{
+					let yj = ((py + rad*(2*yi-1) as Real)/dx) as i32;
+					if yj<0 || yj >= n {continue;}
+					if prev_yj != yj{
+						prev_yj = yj;
+						let mut prev_zj = -1 as i32;
+						for zi in 0..2{
+							let zj = ((pz + rad*(2*zi-1) as Real)/dx) as i32;
+							if zj<0 || zj >= n {continue;}
+							if prev_zj != zj{
+								prev_zj = zj;
+								if all.index_n[[xj as usize, yj as usize, zj as usize]] < MAX_INDEX {
+									all.index[[xj as usize, yj as usize, zj as usize, all.index_n[[xj as usize, yj as usize, zj as usize]]]] = i;
+									all.index_n[[xj as usize, yj as usize, zj as usize]] += 1;
+								}
+								else
+								{
+									overflows += 1;
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}
+	if overflows > 0
+	{
+		println!("{} index overflows!",overflows);
+	}
+}
 
+fn remove_outside_cells(tumor: &mut Tumor){
+	for i in 0..tumor.cells.len(){
+		if tumor.cells[i].x < 0. || tumor.cells[i].x > tumor.size ||
+		   tumor.cells[i].y < 0. || tumor.cells[i].y > tumor.size ||
+		   tumor.cells[i].z < 0. || tumor.cells[i].z > tumor.size {
+			let last = tumor.cells.pop().unwrap();
+			if i<tumor.cells.len(){
+				tumor.cells[i] = last;
+				println!("removed");
+			}
+		}
+	}
+}
 
+fn split_cells(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
+
+}
+
+fn update_tumor(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
+	populate_index(tumor, all);
 	//diffuse cells in parallel
 
 	//split some cells. Add to displacement histogram in parallel
 	for i in 0..tumor.cells.len() {
 		match tumor.cells[i].cell_type {
-			CellType::Cancer  => {
+			CellType::Cancer => {
 				if true || tumor.rng.gen::<Real>() < tumor.model.cancer_growth*dt {
 					tumor.cells.push(tumor.cells[i].clone())
 				}
 			}
-			CellType::Immune  => {
+			CellType::Immune => {
 				if tumor.rng.gen::<Real>() < tumor.model.immune_growth*dt {
 					tumor.cells.push(tumor.cells[i].clone())
 				}
@@ -216,6 +269,8 @@ fn update_tumor(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
 			_ => (),
 		}
 	}
+
+	remove_outside_cells(tumor);
 }
 
 fn save_tumor(tumor: &Tumor){
@@ -223,12 +278,12 @@ fn save_tumor(tumor: &Tumor){
 }
 
 fn simulate(model:TumorModel, max_tumor_cells: usize) -> Tumor{
-	let mut tumor = get_initial_tumor(model, 50.0, 0.5);
+	let mut tumor = get_initial_tumor(model, 500.0, 0.5);
 	let resolution = 12.;
 	let n_threads = 4;
 
 	println!("Initializing simulation..");
-	let allocation = initialize_simulation(&tumor, resolution, n_threads);
+	let mut allocation = initialize_simulation(&tumor, resolution, n_threads);
 
 
 	let dt = 0.1;
