@@ -1,18 +1,19 @@
 use rand::prelude::*;
+use rand_distr::{UnitSphere, Distribution};
 use ndarray::{Array3,Array4};
 use ndarray::Array;
 use ndarray::prelude::*;
-use ndrustfft::{ndfft_r2c_par, ndifft_r2c_par, Complex, R2cFftHandler};
+use ndrustfft::{ndfft_r2c_par, ndifft_r2c_par, ndfft_par, ndifft_par, Complex, R2cFftHandler, FftHandler};
 
 type Real = f32;
 const DIM: usize = 3; //not intended to work in other than 3 dimensions, just for code clarity
 const MAX_INDEX: usize = 256;
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 enum CellType {
-	Healthy,
-	Cancer,
-	Immune,
+	Healthy = 0,
+	Cancer = 1,
+	Immune = 2,
 }
 
 #[derive(Clone)]
@@ -36,10 +37,13 @@ struct TumorModel {
 //Holds memory needed for running tumor simulation
 struct SimulationAllocation {
 	expansion: Array3<Real>,
+	expansion_hat: Array3<Complex<Real>>,
 	displacement: Array4<Real>,
 	displacement_kernel_hat: Array4<Complex<Real>>,
+	temp: Array3<Complex<Real>>, //storage used during fft
 	index: Array4<usize>,
 	index_n: Array3<usize>,
+	dx: Real,
 }
 
 //Contains state of tumor
@@ -106,25 +110,31 @@ fn initialize_simulation(tumor: &Tumor, resolution: Real, n_threads: u32) -> Sim
 
 	let radii2 = kernel_coords.mapv(|x| x.powi(2)).map_axis(Axis(3), |x| x.sum());
 
-	let mut displacement_kernel = Array::zeros((3,4,5,6));
+	let mut displacement_kernel = Array::zeros((n_kernel, n_kernel, n_kernel, DIM));
+	let mut temp = Array::zeros((n_kernel, n_kernel, n_kernel));
 	
 	displacement_kernel = kernel_coords.clone();
 	
-	let mut displacement_kernel_hat = Array4::<Complex<Real>>::zeros((n_kernel, n_kernel, n_kernel, DIM));
+	let mut displacement_kernel_hat = Array4::<Complex<Real>>::zeros(((n_kernel+1)/2, n_kernel, n_kernel, DIM));
 	
 	for i in 0..DIM
 	{
-		fft(displacement_kernel.index_axis_mut(Axis(DIM), i).to_owned(), displacement_kernel_hat.index_axis_mut(Axis(DIM), i).to_owned());
+		fft(&displacement_kernel.index_axis_mut(Axis(DIM), i).to_owned(),
+			&mut displacement_kernel_hat.index_axis_mut(Axis(DIM), i).to_owned(),
+			&temp);
 	}
 	
 	let index_n = (tumor.size / tumor.model.neighbor_distance) as usize;
 
 	SimulationAllocation {
 		expansion: Array::zeros((n, n, n)),
+		expansion_hat: Array3::<Complex<Real>>::zeros((n_kernel, n_kernel, n_kernel)),
 		displacement: Array::zeros((n, n, n, DIM)),
 		displacement_kernel_hat: displacement_kernel_hat,
+		temp: temp,
 		index: Array::zeros((index_n, index_n, index_n, MAX_INDEX)),
 		index_n: Array::zeros((index_n, index_n, index_n)),
+		dx: dx,
 	}
 }
 
@@ -136,24 +146,41 @@ fn initialize_simulation(tumor: &Tumor, resolution: Real, n_threads: u32) -> Sim
 // def convolve(self, aFFT, bFFT):
 // 	return fft.irfftn( aFFT*bFFT, s = self.d*(self.fftSize,) )[(np.s_[...],) + self.d*(np.s_[self.gridN-1:2*self.gridN-1],)]
 
-fn fft(a:Array3::<Real>, a_hat:Array3::<Complex<Real>>){ //a: Array::<f32, Ix3>){
-	println!("allocating..");
-	let (nx, ny, nz) = (400, 400, 400);
-	let mut data = Array3::<Real>::zeros((nx, ny, nz));
-	let mut vhat = Array3::<Complex<Real>>::zeros((nx / 2 + 1, ny, nz));
-	for (i, v) in data.iter_mut().enumerate() {
-		*v = (i%23) as Real;
-	}
-	let data_c = data.clone();
-	
-	let mut fft_handler = R2cFftHandler::<Real>::new(nx);
+fn fft(a: &Array3::<Real>, a_hat: & mut Array3::<Complex<Real>>,  mut temp: &Array3::<Complex<Real>>){ //a: Array::<f32, Ix3>){
+	// println!("allocating..");
+	// let (nx, ny, nz) = (400, 400, 400);
+	// let mut data = Array3::<Real>::zeros((nx, ny, nz));
+	// // let mut vhat = Array3::<Complex<Real>>::zeros((nx / 2 + 1, ny, nz));
+	// for (i, v) in data.iter_mut().enumerate() {
+	// 	*v = (i%23) as Real;
+	// }
+	// let data_c = data.clone();
+	assert_eq!(a.shape()[0]/2+1, a_hat.shape()[0]);
+	assert_eq!(a.shape()[1], a_hat.shape()[1]);
+	assert_eq!(a.shape()[2], a_hat.shape()[2]);
+
+	let nx = a.shape()[0];
+	let mut rfft_handler = R2cFftHandler::<Real>::new(nx);
+	let mut fft_handler = FftHandler::<Real>::new(nx);
 
 	println!("transform..");
 	ndfft_r2c_par(
-		&mut data.view_mut(),
-		&mut vhat.view_mut(),
-		&mut fft_handler,
+		&a,
+		&mut a_hat,
+		&mut rfft_handler,
 		0,
+	);
+	ndfft_par(
+		&a_hat,
+		&mut temp,
+		&mut fft_handler,
+		1,
+	);
+	ndfft_par(
+		&temp,
+		&mut a_hat.view_mut(),
+		&mut fft_handler,
+		2,
 	);
 	// println!("inverse..");
 	// let mut ifft_handler = R2cFftHandler::<Real>::new(nx);
@@ -167,22 +194,52 @@ fn fft(a:Array3::<Real>, a_hat:Array3::<Complex<Real>>){ //a: Array::<f32, Ix3>)
 	// println!("{},{},{},{}", data[[0,0,0]], data[[0,0,1]], data[[0,0,2]], data[[0,0,3]]);
 }
 
-// fn convolve(a_fft: Array::<Real, Ix3>, b_fft: Array::<Real, Ix3>)
-// {
-// 	println!("inverse..");
-// 	let mut ifft_handler = R2cFftHandler::<Real>::new(nx);
-// 	ndifft_r2c_par(
-// 		&mut vhat.view_mut(),
-// 		&mut data.view_mut(),
-// 		&mut ifft_handler,
-// 		0,
-// 	);
+// Convolve a * b -> c
+fn convolve(a_hat: &Array::<Complex<Real>, Ix3>, b_hat: &Array::<Complex<Real>, Ix3>, c: &mut Array::<Real, Ix3>)
+{
+	let nx = (a_hat.shape()[0]-1)*2;
+	let ny = a_hat.shape()[1];
+	let nz = a_hat.shape()[2];
+	assert_eq!(nx, ny);
+	assert_eq!(nx, nz);
+
+	let mut ab_hat = a_hat * b_hat;
+	println!("inverse..");
+	let mut irfft_handler = R2cFftHandler::<Real>::new(nx);
+	let mut ifft_handler = FftHandler::<Real>::new(nx);
+
+	ndifft_par(
+		&mut ab_hat.view_mut(),
+		&mut ab_hat.view_mut(),
+		&mut ifft_handler,
+		2,
+	);
+
+	ndifft_par(
+		&mut ab_hat.view_mut(),
+		&mut ab_hat.view_mut(),
+		&mut ifft_handler,
+		1,
+	);
+
+	ndifft_r2c_par(
+		&mut ab_hat.view_mut(),
+		&mut c.view_mut(),
+		&mut irfft_handler,
+		0,
+	);
+}
+
+// fn posToGridInd(x: Reals){
+
 // }
 
+// cell index is saved in all voxels that overlap with sphere centered at cell with interaction dist radius
+// This way we only need to look in one 
 fn populate_index(tumor: &mut Tumor, all: &mut SimulationAllocation){
 	//add cell ids in spatial grid
 	//create index in parallel
-	let dx = tumor.size / (all.expansion.shape()[0]) as Real;
+	
 	let n = all.index_n.shape()[0] as i32;
 	let rad = tumor.model.neighbor_distance;
 	all.index_n.fill(0);
@@ -194,19 +251,19 @@ fn populate_index(tumor: &mut Tumor, all: &mut SimulationAllocation){
 		let (px, py, pz) = (tumor.cells[i].x, tumor.cells[i].y, tumor.cells[i].z);
 		let mut prev_xj = -1 as i32;
 		for xi in 0..2{
-			let xj = ((px + rad*(2*xi-1) as Real)/dx) as i32;
+			let xj = ((px + rad*(2*xi-1) as Real)/all.dx) as i32;
 			if xj<0 || xj >= n {continue;}
 			if prev_xj != xj {
 				prev_xj = xj;
 				let mut prev_yj = -1 as i32;
 				for yi in 0..2{
-					let yj = ((py + rad*(2*yi-1) as Real)/dx) as i32;
+					let yj = ((py + rad*(2*yi-1) as Real)/all.dx) as i32;
 					if yj<0 || yj >= n {continue;}
 					if prev_yj != yj{
 						prev_yj = yj;
 						let mut prev_zj = -1 as i32;
 						for zi in 0..2{
-							let zj = ((pz + rad*(2*zi-1) as Real)/dx) as i32;
+							let zj = ((pz + rad*(2*zi-1) as Real)/all.dx) as i32;
 							if zj<0 || zj >= n {continue;}
 							if prev_zj != zj{
 								prev_zj = zj;
@@ -246,30 +303,54 @@ fn remove_outside_cells(tumor: &mut Tumor){
 }
 
 fn split_cells(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
-
-}
-
-fn update_tumor(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
-	populate_index(tumor, all);
-	//diffuse cells in parallel
-
-	//split some cells. Add to displacement histogram in parallel
 	for i in 0..tumor.cells.len() {
 		match tumor.cells[i].cell_type {
 			CellType::Cancer => {
-				if true || tumor.rng.gen::<Real>() < tumor.model.cancer_growth*dt {
-					tumor.cells.push(tumor.cells[i].clone())
+				if tumor.rng.gen::<Real>() < tumor.model.cancer_growth*dt {
+					split_cell(tumor,all,i);
 				}
 			}
 			CellType::Immune => {
 				if tumor.rng.gen::<Real>() < tumor.model.immune_growth*dt {
-					tumor.cells.push(tumor.cells[i].clone())
+					split_cell(tumor,all,i);
 				}
 			}
 			_ => (),
 		}
 	}
+}
 
+fn split_cell(tumor: &mut Tumor, all: &mut SimulationAllocation, i:usize){
+	let xi = ((tumor.cells[i].x as Real)/all.dx) as usize;
+	let yi = ((tumor.cells[i].y as Real)/all.dx) as usize;
+	let zi = ((tumor.cells[i].z as Real)/all.dx) as usize;
+	let r = tumor.model.cell_effective_radii[tumor.cells[i].cell_type as usize];
+	let vol = 4.*(std::f64::consts::PI as Real)*r*r*r/3.;
+	all.expansion[[xi,yi,zi]] += vol;
+	tumor.cells.push(tumor.cells[i].clone());
+	
+	let v: [Real; 3] = UnitSphere.sample(&mut tumor.rng);
+	let d = r;
+	tumor.cells[i].x -= d*v[0];
+	tumor.cells[i].y -= d*v[1];
+	tumor.cells[i].z -= d*v[2];
+	tumor.cells.last_mut().unwrap().x += d*v[0];
+	tumor.cells.last_mut().unwrap().y += d*v[1];
+	tumor.cells.last_mut().unwrap().z += d*v[2];
+}
+
+fn displace_cells(tumor: &mut Tumor, all: &mut SimulationAllocation){
+	fft(&all.expansion, &mut all.expansion_hat, &all.temp);
+	for i in 0..DIM{
+		convolve(all.displacement_kernel_hat.index_axis_mut(Axis(DIM), i).to_owned(),
+		 all.expansion_hat, all.displacement.index_axis_mut(Axis(DIM), i).to_owned());
+	}
+}
+
+fn update_tumor(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
+	populate_index(tumor, all);
+	split_cells(tumor, all, dt);
+	displace_cells(tumor, all);
 	remove_outside_cells(tumor);
 }
 

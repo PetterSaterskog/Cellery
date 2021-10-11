@@ -122,6 +122,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cb00336871be5ed2c8ed44b60ae9959dc5b9f08539422ed43f09e34ecaeba21"
 
 [[package]]
+name = "libm"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -170,9 +176,9 @@ dependencies = [
 
 [[package]]
 name = "ndrustfft"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17d1de770e55c4a04ec48ae61747d64c3749e5f54949582a139df6700e17b077"
+checksum = "13e5807dd25d129b57036ec928f372f0c14d3fc0415ce57afddf5d990c8ba002"
 dependencies = [
  "ndarray",
  "num-traits",
@@ -225,6 +231,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a64b1ec5cda2586e284722486d802acf1f7dbdc623e2bfc57e65ca1cd099290"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -281,6 +288,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d34f1408f55294453790c48b2f1ebbb1c5b4b7563eb1f418bcfcfdbb06ebb4e7"
 dependencies = [
  "getrandom",
+]
+
+[[package]]
+name = "rand_distr"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "964d548f8e7d12e102ef183a0de7e98180c9f8729f555897a857b96e48122d2f"
+dependencies = [
+ "num-traits",
+ "rand",
 ]
 
 [[package]]
@@ -399,6 +416,7 @@ dependencies = [
  "ndarray-stats",
  "ndrustfft",
  "rand",
+ "rand_distr",
 ]
 
 [[package]]
