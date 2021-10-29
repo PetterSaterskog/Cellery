@@ -1,9 +1,11 @@
 use rand::prelude::*;
-use rand_distr::{UnitSphere, Distribution};
+use rand_pcg::Pcg64;
+use rand_distr::{UnitSphere, Distribution, Normal};
 use ndarray::{Array3,Array4};
 use ndarray::Array;
 use ndarray::prelude::*;
 use ndrustfft::{ndfft_r2c_par, ndifft_r2c_par, ndfft_par, ndifft_par, Complex, R2cFftHandler, FftHandler};
+use approx::{assert_relative_eq};
 
 type Real = f32;
 const DIM: usize = 3; //not intended to work in other than 3 dimensions, just for code clarity
@@ -127,9 +129,9 @@ fn initialize_simulation(tumor: &Tumor, resolution: Real, n_threads: u32) -> Sim
 	let index_n = (tumor.size / tumor.model.neighbor_distance) as usize;
 
 	SimulationAllocation {
-		expansion: Array::zeros((n, n, n)),
+		expansion: Array::zeros((n_kernel, n_kernel, n_kernel)),
 		expansion_hat: Array3::<Complex<Real>>::zeros((n_kernel/2+1, n_kernel, n_kernel)),
-		displacement: Array::zeros((n, n, n, DIM)),
+		displacement: Array::zeros((n_kernel, n_kernel, n_kernel, DIM)),
 		displacement_kernel_hat: displacement_kernel_hat,
 		temp: temp,
 		index: Array::zeros((index_n, index_n, index_n, MAX_INDEX)),
@@ -167,10 +169,10 @@ fn fft(a: &Array3::<Real>, a_hat: & mut Array3::<Complex<Real>>,  temp: &mut Arr
 	let mut rfft_handler = R2cFftHandler::<Real>::new(nx);
 	let mut fft_handler = FftHandler::<Real>::new(nx);
 
-	println!("transform..");
-	println!("a.shape() {}, {}, {}", a.shape()[0], a.shape()[1], a.shape()[2]);
-	println!("a_hat.shape() {}, {}, {}", a_hat.shape()[0], a_hat.shape()[1], a_hat.shape()[2]);
-	println!("temp.shape() {}, {}, {}", temp.shape()[0], temp.shape()[1], temp.shape()[2]);
+	// println!("transform..");
+	// println!("a.shape() {}, {}, {}", a.shape()[0], a.shape()[1], a.shape()[2]);
+	// println!("a_hat.shape() {}, {}, {}", a_hat.shape()[0], a_hat.shape()[1], a_hat.shape()[2]);
+	// println!("temp.shape() {}, {}, {}", temp.shape()[0], temp.shape()[1], temp.shape()[2]);
 	ndfft_r2c_par(
 		a,
 		a_hat,
@@ -210,8 +212,8 @@ fn convolve(a_hat: &Array::<Complex<Real>, Ix3>, b_hat: &Array::<Complex<Real>, 
 	assert_eq!(nx, ny);
 	assert_eq!(nx, nz);
 
-	let mut  ab_hat = a_hat * b_hat;
-	println!("inverse..");
+	let mut ab_hat = a_hat * b_hat;
+	// println!("inverse..");
 	let mut irfft_handler = R2cFftHandler::<Real>::new(nx);
 	let mut ifft_handler = FftHandler::<Real>::new(nx);
 
@@ -223,15 +225,15 @@ fn convolve(a_hat: &Array::<Complex<Real>, Ix3>, b_hat: &Array::<Complex<Real>, 
 	);
 
 	ndifft_par(
-		&mut temp.view_mut(),
-		&mut ab_hat.view_mut(),
+		temp,
+		&mut ab_hat,
 		&mut ifft_handler,
 		1,
 	);
 
 	ndifft_r2c_par(
-		&mut ab_hat.view_mut(),
-		&mut c.view_mut(),
+		&ab_hat,
+		c,
 		&mut irfft_handler,
 		0,
 	);
@@ -296,17 +298,19 @@ fn populate_index(tumor: &mut Tumor, all: &mut SimulationAllocation){
 }
 
 fn remove_outside_cells(tumor: &mut Tumor){
-	for i in 0..tumor.cells.len(){
-		if tumor.cells[i].x < 0. || tumor.cells[i].x > tumor.size ||
-		   tumor.cells[i].y < 0. || tumor.cells[i].y > tumor.size ||
-		   tumor.cells[i].z < 0. || tumor.cells[i].z > tumor.size {
-			let last = tumor.cells.pop().unwrap();
-			if i<tumor.cells.len(){
-				tumor.cells[i] = last;
-				println!("removed");
-			}
-		}
-	}
+	let s = tumor.size;
+	tumor.cells.retain(|c| c.x >= 0. && c.x <= s && c.y >= 0. && c.y <= s && c.z >= 0. && c.z <= s);
+	// for i in 0..tumor.cells.len(){
+	// 	if tumor.cells[i].x < 0. || tumor.cells[i].x > tumor.size ||
+	// 	   tumor.cells[i].y < 0. || tumor.cells[i].y > tumor.size ||
+	// 	   tumor.cells[i].z < 0. || tumor.cells[i].z > tumor.size {
+	// 		let last = tumor.cells.pop().unwrap();
+	// 		if i<tumor.cells.len(){
+	// 			tumor.cells[i] = last;
+	// 			println!("removed");
+	// 		}
+	// 	}
+	// }
 }
 
 fn split_cells(tumor: &mut Tumor, all: &mut SimulationAllocation, dt: Real){
@@ -414,7 +418,7 @@ mod tests {
 					for j1 in 0..f.shape()[0]{
 						for j2 in 0..f.shape()[0]{
 							for j3 in 0..f.shape()[0]{
-								res[[i1, i2, i3]] += f[[j1,j2,j3]] * kernel[[j1-i1 + f.shape()[0]-1, j2-i2 + f.shape()[1]-1, j3-i3 + f.shape()[2]-1]];
+								res[[i1, i2, i3]] += f[[j1,j2,j3]] * kernel[[i1 + f.shape()[0]-1-j1, i2+ f.shape()[1]-1-j2 , i3 + f.shape()[2]-1-j3]];
 							}
 						}
 					}
@@ -425,24 +429,44 @@ mod tests {
 
     #[test]
     fn fft_convolution() {
-		let n = 4;
-		let n_kernel=2*n - 1;
+		let n = 7;
+		let n_kernel = 2*n - 1;
 		let mut a = Array::zeros((n_kernel, n_kernel, n_kernel));
+		let mut b = Array::zeros((n_kernel, n_kernel, n_kernel));
+		
+		let mut rng = Pcg64::seed_from_u64(0);
+		let normal = Normal::new(0 as Real, 1 as Real).unwrap();
+		for i1 in 0..n{
+			for i2 in 0..n{
+				for i3 in 0..n{
+					a[[i1,i2,i3]] = normal.sample(&mut rng);
+				}
+			}
+		}
+		for i1 in 0..n_kernel{
+			for i2 in 0..n_kernel{
+				for i3 in 0..n_kernel{
+					b[[i1,i2,i3]] = normal.sample(&mut rng);
+				}
+			}
+		}
 
 		let mut a_hat =  Array3::<Complex<Real>>::zeros((n, n_kernel, n_kernel));
-		let mut b = Array::zeros((n_kernel, n_kernel, n_kernel));
-
 		let mut b_hat = Array3::<Complex<Real>>::zeros((n, n_kernel, n_kernel));
 		let mut res = Array::zeros((n_kernel, n_kernel, n_kernel));
-		let mut resBrute = Array::zeros((n_kernel, n_kernel, n_kernel));
+		let mut res_brute = Array::zeros((n, n, n));
 		let mut temp =Array3::<Complex<Real>>::zeros((n, n_kernel, n_kernel));
 		fft(&a, &mut a_hat, &mut temp);
 		fft(&b, &mut b_hat, &mut temp);
-		convolve(&a_hat, &b_hat, & mut res, &mut temp);
-		brute_convolution(&a, &b, &mut resBrute);
+		convolve(&a_hat, &b_hat, &mut res, &mut temp);
+		brute_convolution(&a.slice_mut(s![..n, ..n, ..n]).view().to_owned(), &b, &mut res_brute);
 
-		println!("{}, {}", res[[0, 0, 0]], res[[0, 0, 1]]);
-		println!("{}, {}", resBrute[[0, 0, 0]], resBrute[[0, 0, 1]]);
-		// assert_eq!(1,2, );
+		for i1 in 0..n{
+			for i2 in 0..n{
+				for i3 in 0..n{
+					assert_relative_eq!(res[[n-1+i1,n-1+i2,n-1+i3]], res_brute[[i1,i2,i3]], epsilon = (n*n*100) as Real * Real::EPSILON);
+				}
+			}
+		}	
     }
 }

@@ -24,7 +24,7 @@ name = getFileName(*params)
 print(f"Testing: {name}")
 
 tm = tumorModel.TumorModel(cellEffR=cellEffR, immuneFraction=immuneFraction, moveSpeed=moveSpeed, cytotoxicity=cytotoxicity, neighborDist=neighborDist, growth={'cancer':1.0, 'immune':immuneGrowth}, diffusion = {('cancer', 'immune'):0.0, ('cancer', 'healthy'):cancerDiff, ('healthy','immune'):immuneDiff})
-tumor = tumorModel.Tumor(tm, L=L, d=d, tumorCellCount = tumorSize, maxSteps = 10000, verbose=True, width=thickness, saveEvolution=True)
+tumor = tumorModel.Tumor(tm, L=L, d=d, tumorCellCount=tumorSize, maxSteps=10000, verbose=True, width=thickness, saveEvolution=True)
 np.savetxt(f"{outFolder}/{name}_positions.csv", tumor.cellPositions, delimiter = ', ')
 np.savetxt(f"{outFolder}/{name}_types.csv", tumor.cellTypes)
 fig, sc = tumorModel.plot(tumor.cellPositions, tumor.cellTypes, tm.cellEffR, L=L, width=thickness)

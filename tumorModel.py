@@ -271,7 +271,7 @@ class Tumor():
 
 		return toSplit.shape[0]
 
-def plot(cellPositions, cellTypes, cellEffR, L=0, width=15, fig=None):
+def plot(cellPositions, cellTypes, cellEffR, L=0, width=None, fig=None):
 	colors = {'healthy':(0,.8,0), 'cancer':(1,0,0), 'immune':(0,0,1)}
 	if fig==None:
 		fig = pl.figure(figsize=(26,26))
@@ -279,9 +279,13 @@ def plot(cellPositions, cellTypes, cellEffR, L=0, width=15, fig=None):
 	import matplotlib
 	for i in range(len(types)):
 		ps = cellPositions[cellTypes==i]
-		inSlice = np.all(np.abs(ps[:,2:]-L/2)*2 < width, axis=1)
+		if width:
+			inSlice = np.all(np.abs(ps[:,2:]-L/2)*2 < width, axis=1)
+			plotPs = ps[inSlice]
+		else:
+			plotPs = ps
 		# sc.append(pl.scatter(ps[:,0], ps[:,1], s=1, color=colors[types[i]], label=types[i]))
-		circles = [pl.Circle((xi,yi), radius=cellEffR[types[i]]*0.3, linewidth=0, label=types[i]) for xi,yi in ps[inSlice][:, :2]]
+		circles = [pl.Circle((xi,yi), radius=cellEffR[types[i]]*0.3, linewidth=0, label=types[i]) for xi,yi in plotPs[:, :2]]
 		# print(circles)
 		c = matplotlib.collections.PatchCollection(circles, color=colors[types[i]] )
 		sc.append(c)
