@@ -3,7 +3,7 @@ from spencerNewUtils import *
 cellsByType = loadTumor(f"images/spencer/new.csv")
 
 borderSegments = np.array([[[1410, 3715], [1620, 4110]], [[1426, 2125], [1231, 3321]], [[2854., 1163.], [2190., 1318.]], [[3742, 1457], [3379, 1243]], [[4568, 2098], [4248, 1768]]])
-bins = np.linspace(-750, 500, 19)
+bins = np.linspace(-750, 500, 8)
 hists = []
 ws = []
 shiftedPoints = []
@@ -19,12 +19,17 @@ for i, points in enumerate(borderSegments):
 	hists.append(hist)
 	ws.append(w)
 
-plotCats = [(tumorCells, 'Tumor cells'), (['Neuron'], 'Neurons'), (['Microglia'], 'Microglia'), (['Macrophage'], 'Macrophages')] #, (stromaCells, 'Stroma')]
+plotCats = [(tumorCells, 'Tumor cells'), (['Neuron'], 'Neurons'),
+(['Microglia'], 'Microglia'), (['Macrophage'], 'Macrophages'),
+(stromaCells, 'Stroma'), (['Astrocyte'], 'Astrocyte'),
+(['Fibroblast'], 'Fibroblast'), (['Neutrophil'], 'Neutrophil'), (['T-cell'], 'T-cell')
+]
+
 binCenters = (bins[:-1] + bins[1:])/2
 
-fig, axs = pl.subplots(2, 2, figsize=(8,6))
+fig, axs = pl.subplots(3, 3, figsize=(12,9))
 for i, (types, label) in enumerate(plotCats):
-	pl.sca(axs[i//2, i%2])
+	pl.sca(axs[i//3, i%3])
 	pl.title(label)
 	for j, hist in enumerate(hists):
 		pl.plot(binCenters, 1e3*sum(hist[t] for t in types), label=chr(ord("A")+j))
